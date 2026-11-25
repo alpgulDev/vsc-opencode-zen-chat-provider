@@ -12,10 +12,28 @@ import { toCopilotUsage, VSCODE_USAGE_MIME_TYPE, type ZenUsage } from './usage';
 
 export const VENDOR_ID = 'opencode';
 
+type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
+	readonly configuration?: { readonly lane?: string };
+};
+
+export function modelsForLane(
+	models: readonly vscode.LanguageModelChatInformation[],
+	lane: string
+): vscode.LanguageModelChatInformation[] {
+	if (lane === 'zen') {
+		return models.filter((model) => !model.id.endsWith('-go'));
+	}
+	if (lane === 'go') {
+		return models.filter((model) => model.id.endsWith('-go'));
+	}
+	return [...models];
+}
+
 export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider {
 	private readonly registry: ModelRegistry;
 	private readonly routeResolver: GatewayRouteResolver;
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
+	private loggedMissingGroup = false;
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
 	constructor(private readonly context: vscode.ExtensionContext, private readonly transport?: ZenTransportManager) {
@@ -66,16 +84,23 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	}
 
 	async provideLanguageModelChatInformation(
-		_options: vscode.PrepareLanguageModelChatModelOptions,
+		options: GroupedModelOptions,
 		_token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]> {
-		void _options;
 		void _token;
+		const configuration = options.configuration;
+		if (!configuration) {
+			if (!this.loggedMissingGroup) {
+				this.loggedMissingGroup = true;
+				getOutputChannel().info('No OpenCode Zen model group is configured. Run "OpenCode Zen: Add Models" to add one.');
+			}
+			return [];
+		}
 		try {
 			const auth = await getInferenceAuth(this.context.secrets);
 			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
 			await this.refreshRoutes(false);
-			return models;
+			return modelsForLane(models, configuration.lane ?? 'auto');
 		} catch (err) {
 			// If model metadata fetch fails, surface no models rather than throwing.
 			getOutputChannel().error(`Model discovery failed: ${err instanceof Error ? err.message : String(err)}`);

@@ -33,6 +33,7 @@
     "onCommand:opencodeZen.signIn",
     "onCommand:opencodeZen.signOut",
     "onCommand:opencodeZen.refreshModels",
+    "onCommand:opencodeZen.addModels",
     "onCommand:opencodeZen.restartTransport",
     "onCommand:opencodeZen.selfTest",
     "onCommand:opencodeZen.selfTestOnce"
@@ -41,7 +42,18 @@
     "languageModelChatProviders": [
       {
         "vendor": "opencode",
-        "displayName": "OpenCode Zen"
+        "displayName": "OpenCode Zen",
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "lane": {
+              "type": "string",
+              "enum": ["auto", "zen", "go"],
+              "default": "auto",
+              "description": "Which OpenCode inference lane to expose. 'auto' includes both."
+            }
+          }
+        }
       }
     ],
     "commands": [
@@ -56,6 +68,10 @@
       {
         "command": "opencodeZen.refreshModels",
         "title": "OpenCode Zen: Refresh Model List"
+      },
+      {
+        "command": "opencodeZen.addModels",
+        "title": "OpenCode Zen: Add Models"
       },
       {
         "command": "opencodeZen.restartTransport",
