@@ -840,21 +840,30 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(agentsWindow, /agentsPickerInAttachContextMenu/);
 });
 
-test('free models can be shown while paid models are hidden', () => {
+test('paid models stay passive until activated through the extension command', () => {
 	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-	const setting = pkg.contributes.configuration.properties['opencodeZen.onlyFreeModels'];
-	assert.equal(setting?.type, 'boolean');
-	assert.equal(setting?.default, false);
-	assert.match(setting.description, /zero-cost models/);
+	assert.equal(pkg.contributes.configuration.properties['opencodeZen.onlyFreeModels'], undefined);
+	const commands = pkg.contributes.commands.map((command) => command.command);
+	assert.equal(commands.includes('opencodeZen.managePaidModels'), true);
+	assert.equal(pkg.activationEvents.includes('onCommand:opencodeZen.managePaidModels'), true);
 
 	const registry = readFileSync(join(root, 'src', 'modelRegistry.ts'), 'utf8');
-	assert.match(registry, /get<boolean>\('onlyFreeModels', false\)/);
-	assert.match(registry, /cachedOnlyFree/);
-	assert.match(registry, /model\.cost\?\.input === 0 && model\.cost\?\.output === 0/);
+	assert.match(registry, /modelCosts/);
+	assert.match(registry, /isFreeModel\(modelId: string\): boolean/);
 	assert.match(registry, /'Free'/);
-	assert.match(registry, /isAnonymousAllowed\(model\) && isFreeOnlyAllowed\(model\)/);
+	assert.doesNotMatch(registry, /onlyFreeModels/);
+
+	const provider = readFileSync(join(root, 'src', 'provider.ts'), 'utf8');
+	assert.match(provider, /ACTIVATED_PAID_MODELS_KEY/);
+	assert.match(provider, /managePaidModels\(\): Promise<void>/);
+	assert.match(provider, /canPickMany: true/);
+	assert.match(provider, /picked: activated\.has\(model\.id\)/);
+	assert.match(provider, /isUserSelectable: this\.isPaidModelEnabled\(id\)/);
+	assert.match(provider, /isUserSelectable: this\.isPaidModelEnabled\(model\.id\)/);
+	assert.match(provider, /OpenCode Zen model \$\{model\.name\} is disabled/);
 
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
-	assert.match(extension, /affectsConfiguration\('opencodeZen\.onlyFreeModels'\)/);
-	assert.match(extension, /provider\.refreshModels\(false\), agentProvider\.refreshModels\(false\)/);
+	assert.match(extension, /registerCommand\('opencodeZen\.managePaidModels'/);
+	assert.match(extension, /agentProvider\.refreshModels\(false\)/);
+	assert.doesNotMatch(extension, /onlyFreeModels/);
 });

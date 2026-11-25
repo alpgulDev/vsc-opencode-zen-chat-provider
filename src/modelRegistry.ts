@@ -56,11 +56,11 @@ export class ModelRegistry {
 	private cachedAtMs: number | undefined;
 	private cachedModels: vscode.LanguageModelChatInformation[] | undefined;
 	private cachedAnonymous: boolean | undefined;
-	private cachedOnlyFree: boolean | undefined;
 	private providerDefaults: Map<string, { npm: string; api: string }> = new Map();
 	private modelProviderOverrides = new Map<string, string>();
 	private modelRequestMetadata = new Map<string, { headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string }>();
 	private modelProviderApi = new Map<string, string>();
+	private modelCosts = new Map<string, { input?: number; output?: number }>();
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -68,11 +68,11 @@ export class ModelRegistry {
 		this.cachedAtMs = undefined;
 		this.cachedModels = undefined;
 		this.cachedAnonymous = undefined;
-		this.cachedOnlyFree = undefined;
 		this.providerDefaults.clear();
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
 		this.modelProviderApi.clear();
+		this.modelCosts.clear();
 		this._onDidChange.fire();
 	}
 
@@ -84,8 +84,7 @@ export class ModelRegistry {
 		const now = Date.now();
 
 		const anonymous = options.anonymous ?? false;
-		const onlyFree = vscode.workspace.getConfiguration('opencodeZen').get<boolean>('onlyFreeModels', false);
-		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous && this.cachedOnlyFree === onlyFree) {
+		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous) {
 			if (ttlMs === 0 || now - this.cachedAtMs < ttlMs) {
 				return this.cachedModels;
 			}
@@ -104,6 +103,7 @@ export class ModelRegistry {
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
 		this.modelProviderApi.clear();
+		this.modelCosts.clear();
 
 		const allModels: { provider: ModelsDevProvider; model: ModelsDevModel; providerId: string; uniqueId: string }[] = [];
 
@@ -134,6 +134,7 @@ export class ModelRegistry {
 					options: model.options,
 					originalModelId: model.id,
 				});
+				this.modelCosts.set(uniqueId, model.cost ?? {});
 			}
 		}
 
@@ -142,9 +143,7 @@ export class ModelRegistry {
 		}
 
 		const isActiveModel = (model: ModelsDevModel) => model.status === undefined || model.status !== 'deprecated';
-		const isAnonymousAllowed = (model: ModelsDevModel) => !anonymous || model.cost?.input === 0;
-		const isFreeOnlyAllowed = (model: ModelsDevModel) => !onlyFree || (model.cost?.input === 0 && model.cost?.output === 0);
-		const isAvailableModel = (model: ModelsDevModel) => isActiveModel(model) && isAnonymousAllowed(model) && isFreeOnlyAllowed(model);
+		const isAvailableModel = (model: ModelsDevModel) => isActiveModel(model) && (!anonymous || model.cost?.input === 0);
 		const models = allModels
 			.filter(({ model }) => isAvailableModel(model))
 			.sort((a, b) => a.model.name.localeCompare(b.model.name))
@@ -153,8 +152,15 @@ export class ModelRegistry {
 		this.cachedModels = models;
 		this.cachedAtMs = now;
 		this.cachedAnonymous = anonymous;
-		this.cachedOnlyFree = onlyFree;
 		return models;
+	}
+
+	isFreeModel(modelId: string): boolean {
+		const cost = this.modelCosts.get(modelId);
+		if (!cost) {
+			return true;
+		}
+		return cost.input === 0 && cost.output === 0;
 	}
 
 	async getModelProviderInfo(modelId: string): Promise<{ npm: string; api: string; headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string } | undefined> {

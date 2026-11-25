@@ -36,6 +36,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:opencodeZen.refreshModels",
+    "onCommand:opencodeZen.managePaidModels",
     "onCommand:opencodeZen.addModels",
     "onCommand:opencodeZen.revertAgentsWindowSupport",
     "onCommand:opencodeZen.restartTransport",
@@ -90,6 +91,10 @@
         "title": "OpenCode Zen: Refresh Model List"
       },
       {
+        "command": "opencodeZen.managePaidModels",
+        "title": "OpenCode Zen: Manage Paid Models"
+      },
+      {
         "command": "opencodeZen.addModels",
         "title": "OpenCode Zen: Add Models"
       },
@@ -125,11 +130,6 @@
           "default": 60,
           "minimum": 0,
           "description": "How long to cache model metadata before refetching. 0 disables caching."
-        },
-        "opencodeZen.onlyFreeModels": {
-          "type": "boolean",
-          "default": false,
-          "description": "Expose only zero-cost models from models.dev, even when signed in. Paid models are hidden from both Chat and Agents pickers."
         },
         "opencodeZen.transport.enabled": {
           "type": "boolean",

@@ -29,6 +29,7 @@ const AGENT_SESSION_TYPE = 'copilotcli';
 const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
 const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
 const SETUP_STATE_PREFIX = 'opencodeZen.setup.v1.';
+const ACTIVATED_PAID_MODELS_KEY = 'opencodeZen.activatedPaidModels.v1';
 
 let apiKeyPromptInFlight: Promise<string | undefined> | undefined;
 let apiKeyPromptAttempted = false;
@@ -48,6 +49,8 @@ interface SetupConfig {
 type SetupChoice = SetupAuthMethod | 'signOut';
 
 type SetupPickItem = vscode.QuickPickItem & { readonly value: SetupChoice };
+
+type PaidModelPickItem = vscode.QuickPickItem & { readonly value: string };
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
 	readonly silent?: boolean;
@@ -124,13 +127,52 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 		// Best-effort refresh, but don't crash activation.
 		try {
-			const auth = await getInferenceAuth(this.context.secrets);
-			await this.registry.getModels({ force: true, anonymous: auth.apiKey === 'public' });
+			await this.registry.getModels({ force: true });
 			this.onDidChangeEmitter.fire();
 		} catch (err) {
 			getOutputChannel().error(`Model refresh failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 		await this.refreshRoutes(force);
+	}
+
+	private activatedPaidModels(): Set<string> {
+		const stored = this.context.globalState.get<string[]>(ACTIVATED_PAID_MODELS_KEY, []);
+		return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
+	}
+
+	private isPaidModelEnabled(modelId: string): boolean {
+		const id = rawModelId(modelId);
+		return this.registry.isFreeModel(id) || this.activatedPaidModels().has(id);
+	}
+
+	async managePaidModels(): Promise<void> {
+		const models = await this.registry.getModels({ force: true, anonymous: false });
+		const activated = this.activatedPaidModels();
+		const paid = models.filter((model) => !this.registry.isFreeModel(model.id));
+		if (paid.length === 0) {
+			vscode.window.showInformationMessage('OpenCode Zen has no paid models to manage.');
+			return;
+		}
+		const items: PaidModelPickItem[] = paid.map((model) => ({
+			label: model.name,
+			description: model.id,
+			detail: model.tooltip,
+			picked: activated.has(model.id),
+			value: model.id,
+		}));
+		const selected = await vscode.window.showQuickPick<PaidModelPickItem>(items, {
+			title: 'OpenCode Zen: Paid Models',
+			placeHolder: 'Checked models are active. Select the paid models to enable.',
+			canPickMany: true,
+			ignoreFocusOut: true,
+		});
+		if (!selected) {
+			return;
+		}
+		const next = new Set(selected.map((item) => item.value));
+		await this.context.globalState.update(ACTIVATED_PAID_MODELS_KEY, [...next].sort());
+		getOutputChannel().info(`OpenCode Zen paid models active: ${next.size} of ${paid.length}.`);
+		this.onDidChangeEmitter.fire();
 	}
 
 	private async refreshRoutes(force: boolean): Promise<void> {
@@ -435,7 +477,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				}
 			}
 
-			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
+			const models = await this.registry.getModels();
 			await this.refreshRoutes(false);
 
 			const visible = modelsForLane(models, lane);
@@ -448,7 +490,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 						id,
 						name: `${model.name} (Agents)`,
 						isBYOK: true,
-						isUserSelectable: true,
+						isUserSelectable: this.isPaidModelEnabled(id),
 						targetChatSessionType: AGENT_SESSION_TYPE,
 					};
 				});
@@ -456,7 +498,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 			return visible.map((model) => {
 				this.rememberApiKey(model.id, auth.apiKey);
-				return { ...model, isBYOK: true, isUserSelectable: true };
+				return { ...model, isBYOK: true, isUserSelectable: this.isPaidModelEnabled(model.id) };
 			});
 		} catch (err) {
 			// If model metadata fetch fails, surface no models rather than throwing.
@@ -472,6 +514,9 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
+		if (!this.isPaidModelEnabled(model.id)) {
+			throw new Error(`OpenCode Zen model ${model.name} is disabled. Run 'OpenCode Zen: Manage Paid Models' to enable it.`);
+		}
 		const transportEndpoint = await this.transport?.getEndpoint();
 		const auth = await this.resolveRequestAuth(options, model.id);
 
