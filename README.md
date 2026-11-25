@@ -38,27 +38,28 @@ vsce package
 
 1. Open this folder in VS Code
 2. Press `F5` (Run → Start Debugging)
-3. In the Extension Development Host models appear in both the normal Chat picker and the Agents window / Copilot harness. Sign in with **OpenCode Zen: Sign In** for authenticated access (anonymous `Bearer public` fallback is used otherwise). Optionally run **OpenCode Zen: Add Models** to create a BYOK group.
+3. Run **OpenCode Zen: Add Models**, add an **OpenCode Zen** group, then pick the authentication method in the group settings.
 
 ## Commands
 
 Open the command palette (`Ctrl/Cmd+Shift+P`):
 
-- `OpenCode Zen: Sign In` (`opencodeZen.signIn`)
-  - Device OAuth with OpenCode Console; access/refresh tokens are stored in **SecretStorage** (not in settings).
-- `OpenCode Zen: Sign Out` (`opencodeZen.signOut`)
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
   - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
-  - The group's `apiKey` is stored by VS Code as a secret; it overrides the signed-in token when present.
+  - In the group settings, choose `authMethod`:
+    - `oauth` (default) starts OpenCode Console device sign-in; no API key is required.
+    - `apiKey` uses the `apiKey` you enter in the group (stored by VS Code as a secret).
+    - `signOut` clears the stored OAuth credential and API key.
   - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
   - The command offers to enable `chat.agentHost.byokModels.enabled` if it is off.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
   - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes the registered vendors.
 - `OpenCode Zen: Revert Agents Window Support` (`opencodeZen.revertAgentsWindowSupport`)
   - Restores the VS Code settings the extension auto-enabled for the Agents window.
-- `OpenCode Zen: Self Test` (`opencodeZen.selfTest`)
-  - Prompts for a model, then runs a small tool-calling roundtrip.
-  - Output is written to the **OpenCode Zen** Output Channel.
+- `OpenCode Zen: Restart Bun-Compatible Transport` (`opencodeZen.restartTransport`)
+  - Restarts the extension-owned transport helper.
+
+Sign-in, sign-out and self-test commands were removed; authentication is managed entirely from the Add Models group.
 
 ## Notes
 
@@ -67,6 +68,6 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - On activation the extension also enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
-- Without sign-in, requests use `Bearer public` (matching the OpenCode CLI anonymous lane).
+- With `authMethod: oauth`, device credentials are stored in **SecretStorage**. With no signed-in credential and no group, requests fall back to `Bearer public` (matching the OpenCode CLI anonymous lane).
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).

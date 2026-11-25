@@ -759,9 +759,6 @@ test('provider keeps CLI shaping and routes the shaped fetch through our transpo
 	assert.match(source, /new vscode\.LanguageModelDataPart\(/);
 	assert.match(source, /VSCODE_USAGE_MIME_TYPE/);
 	assert.match(source, /toCopilotUsage\(snapshot\)/);
-	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
-	assert.match(extension, /registerCommand\('opencodeZen\.selfTestOnce'/);
-	assert.match(extension, /if \(singleRequest\) \{[\s\S]*stopped after one inference request/);
 	assert.match(clientSource, /createCliFetch\(options\.cliContext, options\.baseFetch \?\? fetch\)/);
 	assert.match(manager, /spawn\(binary, \['-config', configPath\]/);
 	assert.match(manager, /x-zen-target/);
@@ -774,6 +771,9 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	const base = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
 	assert.equal(base?.displayName, 'OpenCode Zen');
 	assert.equal(base.configuration.properties.apiKey.secret, true);
+	assert.equal(base.configuration.required, undefined);
+	assert.deepEqual(base.configuration.properties.authMethod.enum, ['oauth', 'apiKey', 'signOut']);
+	assert.equal(base.configuration.properties.authMethod.default, 'oauth');
 	assert.deepEqual(base.configuration.properties.lane.enum, ['auto', 'zen', 'go']);
 	assert.equal(base.configuration.properties.lane.default, 'auto');
 	const agent = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode-agent');
@@ -784,8 +784,11 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode-agent'), true);
 	assert.equal(pkg.contributes.configuration.properties['opencodeZen.agentsWindow'].default, true);
 	assert.equal(pkg.contributes.configuration.properties['opencodeZen.autoEnableAgentsWindow'].default, true);
-	assert.equal(pkg.contributes.commands.some((command) => command.command === 'opencodeZen.addModels'), true);
-	assert.equal(pkg.contributes.commands.some((command) => command.command === 'opencodeZen.revertAgentsWindowSupport'), true);
+	const commands = pkg.contributes.commands.map((command) => command.command);
+	assert.equal(commands.includes('opencodeZen.addModels'), true);
+	assert.equal(commands.includes('opencodeZen.revertAgentsWindowSupport'), true);
+	assert.equal(commands.some((command) => /signIn|signOut|selfTest/.test(command)), false);
+	assert.equal(pkg.activationEvents.some((event) => /signIn|signOut|selfTest/.test(event)), false);
 
 	const source = readFileSync(join(root, 'src', 'provider.ts'), 'utf8');
 	assert.match(source, /AGENT_VENDOR_ID = 'opencode-agent'/);
@@ -793,7 +796,10 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /isBYOK: true/);
 	assert.match(source, /hasByokGroupConfigured/);
 	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
-	assert.match(source, /storeByokApiKey\(this\.context\.secrets, configuredKey\)/);
+	assert.match(source, /ensureGroupAuth\(/);
+	assert.match(source, /getOAuthInferenceAuth\(this\.context\.secrets\)/);
+	assert.match(source, /clearCredential\(this\.context\.secrets\)/);
+	assert.match(source, /storeByokApiKey\(this\.context\.secrets, apiKey\)/);
 
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
 	assert.match(extension, /registerLanguageModelChatProvider\(AGENT_VENDOR_ID, agentProvider\)/);
@@ -802,6 +808,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(extension, /registerCommand\('opencodeZen\.addModels'/);
 	assert.match(extension, /workbench\.action\.chat\.manage/);
 	assert.match(extension, /chat\.agentHost\.byokModels\.enabled/);
+	assert.equal(/selfTest|signIn|signOut/.test(extension), false);
 
 	const agentsWindow = readFileSync(join(root, 'src', 'agentsWindow.ts'), 'utf8');
 	assert.match(agentsWindow, /supportAgentsWindow/);
