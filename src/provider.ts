@@ -28,13 +28,26 @@ const AGENT_SESSION_TYPE = 'copilotcli';
 
 const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
 const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
+const SETUP_STATE_PREFIX = 'opencodeZen.setup.v1.';
 
 let apiKeyPromptInFlight: Promise<string | undefined> | undefined;
 let apiKeyPromptAttempted = false;
 let oauthPromptInFlight: Promise<void> | undefined;
 let lastGroupAuthMethod: AuthMethod | undefined;
+let lastOAuthError: string | undefined;
+let lastApiKeyError: string | undefined;
 
 type AuthMethod = 'oauth' | 'apiKey' | 'signOut';
+type SetupAuthMethod = Exclude<AuthMethod, 'signOut'> | 'anonymous';
+
+interface SetupConfig {
+	readonly authMethod: SetupAuthMethod;
+	readonly lane: string;
+}
+
+type SetupChoice = SetupAuthMethod | 'signOut';
+
+type SetupPickItem = vscode.QuickPickItem & { readonly value: SetupChoice };
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
 	readonly silent?: boolean;
@@ -86,6 +99,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
 	private readonly apiKeysByModelId = new Map<string, string>();
 	private readonly byokGroupStateKey: string;
+	private readonly setupStateKey: string;
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
 	constructor(
@@ -94,6 +108,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		private readonly agentVariant = false
 	) {
 		this.byokGroupStateKey = `${BYOK_GROUP_STATE_PREFIX}${this.agentVariant ? AGENT_VENDOR_ID : VENDOR_ID}`;
+		this.setupStateKey = `${SETUP_STATE_PREFIX}${this.agentVariant ? AGENT_VENDOR_ID : VENDOR_ID}`;
 		this.registry = new ModelRegistry(context);
 		this.registry.onDidChange(() => this.onDidChangeEmitter.fire());
 		this.routeResolver = new GatewayRouteResolver(
@@ -148,8 +163,88 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		await this.context.globalState.update(this.byokGroupStateKey, true);
 	}
 
+	private getSetup(): SetupConfig | undefined {
+		const value = this.context.globalState.get<SetupConfig>(this.setupStateKey);
+		if (!value || (value.authMethod !== 'oauth' && value.authMethod !== 'apiKey' && value.authMethod !== 'anonymous')) {
+			return undefined;
+		}
+		return typeof value.lane === 'string' && value.lane ? value : undefined;
+	}
+
+	private async authForSetup(setup: SetupConfig): Promise<InferenceAuth | undefined> {
+		if (setup.authMethod === 'anonymous') {
+			return { apiKey: 'public' };
+		}
+		if (setup.authMethod === 'apiKey') {
+			const key = await getByokApiKey(this.context.secrets);
+			return key ? { apiKey: key } : undefined;
+		}
+		return getOAuthInferenceAuth(this.context.secrets);
+	}
+
+	private async runSetupWizard(token: vscode.CancellationToken): Promise<boolean> {
+		while (true) {
+			const auth = await vscode.window.showQuickPick<SetupPickItem>(
+				[
+					{ label: 'OAuth', description: 'OpenCode Console device sign-in', value: 'oauth' },
+					{ label: 'API Key', description: 'Enter an OpenCode Zen API key', value: 'apiKey' },
+					{ label: 'Anonymous', description: 'Use the public lane without credentials', value: 'anonymous' },
+					{ label: 'Sign Out', description: 'Clear stored OpenCode Zen credentials', value: 'signOut' },
+				],
+				{ title: 'OpenCode Zen', placeHolder: 'Choose how to connect' }
+			);
+			if (!auth) {
+				return false;
+			}
+			if (auth.value === 'signOut') {
+				await clearCredential(this.context.secrets);
+				await this.context.globalState.update(this.setupStateKey, undefined);
+				lastGroupAuthMethod = 'signOut';
+				this.onDidChangeEmitter.fire();
+				vscode.window.showInformationMessage('OpenCode Zen credentials cleared.');
+				return false;
+			}
+
+			const lane = await vscode.window.showQuickPick<vscode.QuickPickItem>(
+				[
+					{ label: 'auto', description: 'Zen and Go lanes' },
+					{ label: 'zen', description: 'Zen lane only' },
+					{ label: 'go', description: 'Go lane only' },
+				],
+				{ title: 'OpenCode Zen', placeHolder: 'Choose which inference lane to expose' }
+			);
+			if (!lane) {
+				return false;
+			}
+
+			lastOAuthError = undefined;
+			lastApiKeyError = undefined;
+			apiKeyPromptAttempted = false;
+			if (auth.value === 'oauth') {
+				lastGroupAuthMethod = undefined;
+			}
+			const resolved = auth.value === 'anonymous'
+				? { apiKey: 'public' }
+				: await this.ensureGroupAuth(auth.value, undefined, token);
+			if (!resolved) {
+				const message = lastApiKeyError ?? lastOAuthError ?? 'Setup was cancelled.';
+				const retry = await vscode.window.showErrorMessage(`OpenCode Zen setup failed: ${message}`, 'Retry');
+				if (retry) {
+					continue;
+				}
+				return false;
+			}
+
+			await this.context.globalState.update(this.setupStateKey, { authMethod: auth.value, lane: lane.label });
+			this.onDidChangeEmitter.fire();
+			return true;
+		}
+	}
+
 	private async promptForApiKey(): Promise<string | undefined> {
+		lastApiKeyError = undefined;
 		if (apiKeyPromptAttempted) {
+			lastApiKeyError = 'API key entry was already attempted. Choose Sign Out to retry.';
 			return undefined;
 		}
 		if (!apiKeyPromptInFlight) {
@@ -173,6 +268,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	}
 
 	private async startOAuthSignIn(token: vscode.CancellationToken): Promise<void> {
+		lastOAuthError = undefined;
 		await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, true);
 		if (!oauthPromptInFlight) {
 			const controller = new AbortController();
@@ -185,6 +281,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				} catch (err) {
 					if (!controller.signal.aborted) {
 						const message = err instanceof Error ? err.message : String(err);
+						lastOAuthError = message;
 						getOutputChannel().error(`OpenCode Zen OAuth sign-in failed: ${message}`);
 					}
 				}
@@ -229,7 +326,8 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			getOutputChannel().info('OpenCode Zen API key group needs a key; prompting securely.');
 			const prompted = await this.promptForApiKey();
 			if (!prompted) {
-				getOutputChannel().warn('OpenCode Zen API key entry was cancelled or empty.');
+				lastApiKeyError = 'API key entry was cancelled or empty.';
+				getOutputChannel().warn(`OpenCode Zen API key entry was cancelled or empty: ${lastApiKeyError}.`);
 				return undefined;
 			}
 			await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
@@ -295,6 +393,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		try {
 			const configuration = options.configuration;
 			let auth: InferenceAuth | undefined;
+			let lane = 'auto';
 
 			if (configuration !== undefined) {
 				await this.markByokGroupConfigured();
@@ -306,18 +405,33 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				if (!auth) {
 					return [];
 				}
+				lane = configuration.lane ?? 'auto';
 			} else {
 				if (this.hasByokGroupConfigured()) {
 					return [];
 				}
-				auth = await getInferenceAuth(this.context.secrets);
+				if (options.silent === false) {
+					if (!(await this.runSetupWizard(token))) {
+						return [];
+					}
+				}
+				const setup = this.getSetup();
+				if (!setup) {
+					return [];
+				}
+				auth = await this.authForSetup(setup);
+				if (!auth) {
+					return [];
+				}
+				lane = setup.lane;
 			}
 
 			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
 			await this.refreshRoutes(false);
 
+			const visible = modelsForLane(models, lane);
 			if (this.agentVariant) {
-				return models.map((model) => {
+				return visible.map((model) => {
 					const id = `${model.id}${AGENT_MODEL_SUFFIX}`;
 					this.rememberApiKey(id, auth.apiKey);
 					return {
@@ -331,7 +445,6 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				});
 			}
 
-			const visible = configuration ? modelsForLane(models, configuration.lane ?? 'auto') : models;
 			return visible.map((model) => {
 				this.rememberApiKey(model.id, auth.apiKey);
 				return { ...model, isBYOK: true, isUserSelectable: true };

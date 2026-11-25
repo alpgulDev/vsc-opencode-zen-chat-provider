@@ -47,6 +47,7 @@
       {
         "vendor": "opencode",
         "displayName": "OpenCode Zen",
+        "managementCommand": "opencodeZen.addModels",
         "configuration": {
           "type": "object",
           "properties": {
@@ -79,6 +80,7 @@
       {
         "vendor": "opencode-agent",
         "displayName": "OpenCode Zen (Agents)",
+        "managementCommand": "opencodeZen.addModels",
         "when": "config.opencodeZen.showAgentModelsInManagePanel"
       }
     ],

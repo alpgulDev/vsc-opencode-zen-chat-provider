@@ -770,6 +770,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 	const base = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
 	assert.equal(base?.displayName, 'OpenCode Zen');
+	assert.equal(base.managementCommand, 'opencodeZen.addModels');
 	assert.equal(base.configuration.properties.apiKey.secret, true);
 	assert.equal(base.configuration.properties.apiKey.type, 'object');
 	assert.equal(base.configuration.required, undefined);
@@ -779,6 +780,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.equal(base.configuration.properties.lane.default, 'auto');
 	const agent = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode-agent');
 	assert.equal(agent?.displayName, 'OpenCode Zen (Agents)');
+	assert.equal(agent.managementCommand, 'opencodeZen.addModels');
 	assert.match(agent.when, /showAgentModelsInManagePanel/);
 	assert.equal(pkg.capabilities?.agentsWindow?.supported, true);
 	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode'), true);
@@ -797,7 +799,12 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /isBYOK: true/);
 	assert.match(source, /hasByokGroupConfigured/);
 	assert.doesNotMatch(source, /!this\.agentVariant && this\.hasByokGroupConfigured\(\)/);
-	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
+	assert.match(source, /modelsForLane\(models, lane\)/);
+	assert.match(source, /options\.silent === false/);
+	assert.match(source, /runSetupWizard\(token\)/);
+	assert.match(source, /showErrorMessage\(`OpenCode Zen setup failed:/);
+	assert.match(source, /getSetup\(\)/);
+	assert.match(source, /authForSetup\(setup\)/);
 	assert.match(source, /ensureGroupAuth\(/);
 	assert.doesNotMatch(source, /configuration\.authMethod === undefined && configuration\.apiKey === undefined/);
 	assert.match(source, /group resolved: authMethod=/);
