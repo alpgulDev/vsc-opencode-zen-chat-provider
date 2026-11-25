@@ -94,6 +94,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 		const abortController = new AbortController();
 		token.onCancellationRequested(() => abortController.abort());
+		const requestDiagnostics = startRequestDiagnostics(model, options, messages);
 
 		const toolMode = options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto';
 		const route = await this.resolveRoute(model.id);
@@ -174,6 +175,9 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			logDebugRequest(model, requestModelId, requestToolMode, options, coreMessages, tools, providerInfo, providerOptions);
 		}
 
+		let textChars = 0;
+		let toolCalls = 0;
+
 		try {
 			await streamZen(
 				{
@@ -196,15 +200,19 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				{
 					onTextDelta: (delta) => {
 						if (delta) {
+							textChars += delta.length;
 							progress.report(new vscode.LanguageModelTextPart(delta));
 						}
 					},
 					onToolCall: ({ toolCallId, toolName, input }) => {
+						toolCalls++;
 						progress.report(new vscode.LanguageModelToolCallPart(toolCallId, toolName, input));
 					},
 				}
 			);
+			finishRequestDiagnostics(requestDiagnostics, textChars, toolCalls);
 		} catch (err) {
+			failRequestDiagnostics(requestDiagnostics, err);
 			if (debugFlag) {
 				logDebugError(model, requestModelId, requestToolMode, options, coreMessages, tools, providerInfo, err);
 			}
@@ -223,6 +231,72 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		const serialized = typeof text === 'string' ? text : JSON.stringify(text.content);
 		return Math.max(1, Math.ceil(serialized.length / 4));
 	}
+}
+
+type RequestDiagnostics = {
+	readonly id: string;
+	readonly startedAt: number;
+};
+
+function startRequestDiagnostics(
+	model: vscode.LanguageModelChatInformation,
+	options: vscode.ProvideLanguageModelChatResponseOptions,
+	messages: readonly vscode.LanguageModelChatRequestMessage[]
+): RequestDiagnostics {
+	const diagnostics = { id: messageId(), startedAt: Date.now() };
+	const initiator = requestInitiator(options);
+	const toolMode = options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto';
+	getOutputChannel().info(
+		`Request ${diagnostics.id} started: ${model.name} (${model.id}); initiator=${initiator ?? 'unknown'}; ` +
+		`messages=${messages.length} [${summarizeMessageRoles(messages)}]; tools=${options.tools?.length ?? 0} ` +
+		`[${summarizeToolNames(options.tools)}]; mode=${toolMode}.`
+	);
+	return diagnostics;
+}
+
+function finishRequestDiagnostics(diagnostics: RequestDiagnostics, textChars: number, toolCalls: number): void {
+	getOutputChannel().info(
+		`Request ${diagnostics.id} completed in ${Date.now() - diagnostics.startedAt}ms: ` +
+		`textChars=${textChars}, toolCalls=${toolCalls}.`
+	);
+}
+
+function failRequestDiagnostics(diagnostics: RequestDiagnostics, err: unknown): void {
+	const message = err instanceof Error ? err.message : String(err);
+	getOutputChannel().error(
+		`Request ${diagnostics.id} failed in ${Date.now() - diagnostics.startedAt}ms: ${message}`
+	);
+}
+
+function requestInitiator(options: vscode.ProvideLanguageModelChatResponseOptions): string | undefined {
+	const record = options as unknown as Record<string, unknown>;
+	const value = record.requestInitiator;
+	return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function summarizeMessageRoles(messages: readonly vscode.LanguageModelChatRequestMessage[]): string {
+	let system = 0;
+	let user = 0;
+	let assistant = 0;
+	for (const message of messages) {
+		if (message.role === vscode.LanguageModelChatMessageRole.User) {
+			user++;
+		} else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
+			assistant++;
+		} else {
+			system++;
+		}
+	}
+	return `system=${system}, user=${user}, assistant=${assistant}`;
+}
+
+function summarizeToolNames(tools: readonly vscode.LanguageModelChatTool[] | undefined): string {
+	if (!tools || tools.length === 0) {
+		return 'none';
+	}
+	const names = tools.map((tool) => tool.name);
+	const shown = names.slice(0, 12).join(', ');
+	return names.length > 12 ? `${shown}, +${names.length - 12}` : shown;
 }
 
 function messagesToAiSdkMessages(
