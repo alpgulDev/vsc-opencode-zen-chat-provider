@@ -38,7 +38,7 @@ vsce package
 
 1. Open this folder in VS Code
 2. Press `F5` (Run → Start Debugging)
-3. In the Extension Development Host, open Chat and enable the **OpenCode Zen** provider in the model picker.
+3. In the Extension Development Host, run **OpenCode Zen: Add Models** and add an **OpenCode Zen** group. Models are only exposed through groups added this way.
 
 ## Commands
 
@@ -47,14 +47,19 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Sign In` (`opencodeZen.signIn`)
   - Device OAuth with OpenCode Console; access/refresh tokens are stored in **SecretStorage** (not in settings).
 - `OpenCode Zen: Sign Out` (`opencodeZen.signOut`)
+- `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
+  - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
+  - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
+  - To use the group in the Agents window / Copilot harness, keep `chat.agentHost.byokModels.enabled` enabled; the command offers to enable it if it is off.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
-  - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`).
+  - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes all configured groups.
 - `OpenCode Zen: Self Test` (`opencodeZen.selfTest`)
   - Prompts for a model, then runs a small tool-calling roundtrip.
   - Output is written to the **OpenCode Zen** Output Channel.
 
 ## Notes
 
+- Models are registered only through **Add Models** groups so they are treated as BYOK models by VS Code and appear in the Agents window / Copilot harness as well as the main Chat picker.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
 - Without sign-in, requests use `Bearer public` (matching the OpenCode CLI anonymous lane).

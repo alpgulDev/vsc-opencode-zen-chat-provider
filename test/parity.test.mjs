@@ -768,3 +768,24 @@ test('provider keeps CLI shaping and routes the shaped fetch through our transpo
 	assert.match(manager, /x-zen-upstream-headers/);
 	assert.match(manager, /server\.listen\(0, '127\.0\.0\.1'/);
 });
+
+test('models are exposed only through Add Models groups', () => {
+	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+	const providerEntry = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
+	assert.equal(providerEntry?.displayName, 'OpenCode Zen');
+	assert.deepEqual(providerEntry.configuration.properties.lane.enum, ['auto', 'zen', 'go']);
+	assert.equal(providerEntry.configuration.properties.lane.default, 'auto');
+	assert.equal(pkg.activationEvents.includes('onCommand:opencodeZen.addModels'), true);
+	assert.equal(pkg.contributes.commands.some((command) => command.command === 'opencodeZen.addModels'), true);
+
+	const source = readFileSync(join(root, 'src', 'provider.ts'), 'utf8');
+	assert.match(source, /const configuration = options\.configuration;/);
+	assert.match(source, /if \(!configuration\) \{[\s\S]*?return \[\];/);
+	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
+	assert.match(source, /model\.id\.endsWith\('-go'\)/);
+
+	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+	assert.match(extension, /registerCommand\('opencodeZen\.addModels'/);
+	assert.match(extension, /workbench\.action\.chat\.manage/);
+	assert.match(extension, /chat\.agentHost\.byokModels\.enabled/);
+});
