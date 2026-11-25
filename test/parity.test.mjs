@@ -802,6 +802,10 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /modelsForLane\(models, lane\)/);
 	assert.match(source, /options\.silent === false/);
 	assert.match(source, /runSetupWizard\(token\)/);
+	const silentFalseIndex = source.indexOf('if (options.silent === false)');
+	const legacyHideIndex = source.indexOf('} else if (this.hasByokGroupConfigured()) {');
+	assert.ok(silentFalseIndex >= 0 && legacyHideIndex > silentFalseIndex, 'setup wizard must run before legacy group hiding');
+	assert.match(source, /if \(existingSetup\) \{\s*return \[\];/);
 	assert.match(source, /showErrorMessage\(`OpenCode Zen setup failed:/);
 	assert.match(source, /getSetup\(\)/);
 	assert.match(source, /authForSetup\(setup\)/);

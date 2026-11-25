@@ -223,11 +223,13 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			if (auth.value === 'oauth') {
 				lastGroupAuthMethod = undefined;
 			}
+			getOutputChannel().info(`OpenCode Zen setup selected: authMethod=${auth.value}, lane=${lane.label}.`);
 			const resolved = auth.value === 'anonymous'
 				? { apiKey: 'public' }
 				: await this.ensureGroupAuth(auth.value, undefined, token);
 			if (!resolved) {
 				const message = lastApiKeyError ?? lastOAuthError ?? 'Setup was cancelled.';
+				getOutputChannel().error(`OpenCode Zen setup failed: ${message}`);
 				const retry = await vscode.window.showErrorMessage(`OpenCode Zen setup failed: ${message}`, 'Retry');
 				if (retry) {
 					continue;
@@ -236,6 +238,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			}
 
 			await this.context.globalState.update(this.setupStateKey, { authMethod: auth.value, lane: lane.label });
+			getOutputChannel().info(`OpenCode Zen setup complete: authMethod=${auth.value}, lane=${lane.label}.`);
 			this.onDidChangeEmitter.fire();
 			return true;
 		}
@@ -392,10 +395,14 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	): Promise<vscode.LanguageModelChatInformation[]> {
 		try {
 			const configuration = options.configuration;
+			const existingSetup = this.getSetup();
 			let auth: InferenceAuth | undefined;
 			let lane = 'auto';
 
 			if (configuration !== undefined) {
+				if (existingSetup) {
+					return [];
+				}
 				await this.markByokGroupConfigured();
 				const authMethod = configuredAuthMethod(configuration);
 				getOutputChannel().info(
@@ -407,23 +414,25 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				}
 				lane = configuration.lane ?? 'auto';
 			} else {
-				if (this.hasByokGroupConfigured()) {
-					return [];
-				}
 				if (options.silent === false) {
+					getOutputChannel().info('OpenCode Zen Add Models requested; opening auth/lane setup.');
 					if (!(await this.runSetupWizard(token))) {
+						getOutputChannel().warn('OpenCode Zen setup did not complete; no models were exposed.');
 						return [];
 					}
 				}
 				const setup = this.getSetup();
-				if (!setup) {
+				if (setup) {
+					auth = await this.authForSetup(setup);
+					if (!auth) {
+						return [];
+					}
+					lane = setup.lane;
+				} else if (this.hasByokGroupConfigured()) {
 					return [];
+				} else {
+					auth = await getInferenceAuth(this.context.secrets);
 				}
-				auth = await this.authForSetup(setup);
-				if (!auth) {
-					return [];
-				}
-				lane = setup.lane;
 			}
 
 			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
