@@ -73,6 +73,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 		context.subscriptions.push(
 			vscode.workspace.onDidChangeConfiguration((event) => {
+				if (event.affectsConfiguration('opencodeZen.onlyFreeModels')) {
+					void Promise.all([provider.refreshModels(false), agentProvider.refreshModels(false)]);
+				}
 				if (
 					event.affectsConfiguration('opencodeZen.agentsWindow') ||
 					event.affectsConfiguration('opencodeZen.autoEnableAgentsWindow')

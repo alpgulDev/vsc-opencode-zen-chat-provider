@@ -56,6 +56,7 @@ export class ModelRegistry {
 	private cachedAtMs: number | undefined;
 	private cachedModels: vscode.LanguageModelChatInformation[] | undefined;
 	private cachedAnonymous: boolean | undefined;
+	private cachedOnlyFree: boolean | undefined;
 	private providerDefaults: Map<string, { npm: string; api: string }> = new Map();
 	private modelProviderOverrides = new Map<string, string>();
 	private modelRequestMetadata = new Map<string, { headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string }>();
@@ -67,6 +68,7 @@ export class ModelRegistry {
 		this.cachedAtMs = undefined;
 		this.cachedModels = undefined;
 		this.cachedAnonymous = undefined;
+		this.cachedOnlyFree = undefined;
 		this.providerDefaults.clear();
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
@@ -82,7 +84,8 @@ export class ModelRegistry {
 		const now = Date.now();
 
 		const anonymous = options.anonymous ?? false;
-		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous) {
+		const onlyFree = vscode.workspace.getConfiguration('opencodeZen').get<boolean>('onlyFreeModels', false);
+		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous && this.cachedOnlyFree === onlyFree) {
 			if (ttlMs === 0 || now - this.cachedAtMs < ttlMs) {
 				return this.cachedModels;
 			}
@@ -139,7 +142,9 @@ export class ModelRegistry {
 		}
 
 		const isActiveModel = (model: ModelsDevModel) => model.status === undefined || model.status !== 'deprecated';
-		const isAvailableModel = (model: ModelsDevModel) => isActiveModel(model) && (!anonymous || model.cost?.input === 0);
+		const isAnonymousAllowed = (model: ModelsDevModel) => !anonymous || model.cost?.input === 0;
+		const isFreeOnlyAllowed = (model: ModelsDevModel) => !onlyFree || (model.cost?.input === 0 && model.cost?.output === 0);
+		const isAvailableModel = (model: ModelsDevModel) => isActiveModel(model) && isAnonymousAllowed(model) && isFreeOnlyAllowed(model);
 		const models = allModels
 			.filter(({ model }) => isAvailableModel(model))
 			.sort((a, b) => a.model.name.localeCompare(b.model.name))
@@ -148,6 +153,7 @@ export class ModelRegistry {
 		this.cachedModels = models;
 		this.cachedAtMs = now;
 		this.cachedAnonymous = anonymous;
+		this.cachedOnlyFree = onlyFree;
 		return models;
 	}
 
@@ -184,11 +190,14 @@ export class ModelRegistry {
 		const costOut = model.cost?.output;
 		const isGo = providerId === 'opencode-go';
 		const modelName = isGo ? `${model.name} (Go)` : model.name;
+		const costBit = costIn === 0 && costOut === 0
+			? 'Free'
+			: costIn !== undefined && costOut !== undefined ? `Cost (per 1M tokens): in $${costIn}, out $${costOut}` : undefined;
 		const tooltipBits: string[] = [
 			provider.name + (isGo ? ' (Go)' : ''),
 			model.reasoning ? 'Reasoning' : undefined,
 			model.tool_call ? 'Tool calling' : undefined,
-			costIn !== undefined && costOut !== undefined ? `Cost (per 1M tokens): in $${costIn}, out $${costOut}` : undefined,
+			costBit,
 		].filter((x): x is string => Boolean(x));
 
 		return {

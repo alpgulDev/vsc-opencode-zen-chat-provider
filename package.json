@@ -126,6 +126,11 @@
           "minimum": 0,
           "description": "How long to cache model metadata before refetching. 0 disables caching."
         },
+        "opencodeZen.onlyFreeModels": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expose only zero-cost models from models.dev, even when signed in. Paid models are hidden from both Chat and Agents pickers."
+        },
         "opencodeZen.transport.enabled": {
           "type": "boolean",
           "default": true,

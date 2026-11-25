@@ -839,3 +839,22 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(agentsWindow, /byokModels\.enabled/);
 	assert.match(agentsWindow, /agentsPickerInAttachContextMenu/);
 });
+
+test('free models can be shown while paid models are hidden', () => {
+	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+	const setting = pkg.contributes.configuration.properties['opencodeZen.onlyFreeModels'];
+	assert.equal(setting?.type, 'boolean');
+	assert.equal(setting?.default, false);
+	assert.match(setting.description, /zero-cost models/);
+
+	const registry = readFileSync(join(root, 'src', 'modelRegistry.ts'), 'utf8');
+	assert.match(registry, /get<boolean>\('onlyFreeModels', false\)/);
+	assert.match(registry, /cachedOnlyFree/);
+	assert.match(registry, /model\.cost\?\.input === 0 && model\.cost\?\.output === 0/);
+	assert.match(registry, /'Free'/);
+	assert.match(registry, /isAnonymousAllowed\(model\) && isFreeOnlyAllowed\(model\)/);
+
+	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+	assert.match(extension, /affectsConfiguration\('opencodeZen\.onlyFreeModels'\)/);
+	assert.match(extension, /provider\.refreshModels\(false\), agentProvider\.refreshModels\(false\)/);
+});
