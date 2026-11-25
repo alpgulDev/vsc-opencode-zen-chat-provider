@@ -1,7 +1,10 @@
-import { randomUUID } from 'crypto';
 import { jsonSchema } from 'ai';
 import * as vscode from 'vscode';
-import { getApiKey } from './secrets';
+import { buildCliHeaders, buildToolRenames, clientToolWireName, projectForWorkdir, projectId, type CliRequestContext } from './cliShaping';
+import { GatewayRouteResolver, providerBaseUrl, sdkPackageForProtocol, type ResolvedGatewayRoute } from './gatewayRoutes';
+import type { ZenTransportManager } from './zenTransport';
+import { isCanonicalSessionId, messageId, sessionId } from './identity';
+import { getGatewayCredential, getInferenceAuth } from './oauth';
 import { ModelRegistry } from './modelRegistry';
 import { OPENAI_COMPAT_PROVIDER_NAME, streamZen } from './zenClient';
 import { getOutputChannel } from './output';
@@ -10,42 +13,73 @@ export const VENDOR_ID = 'opencode';
 
 export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider {
 	private readonly registry: ModelRegistry;
+	private readonly routeResolver: GatewayRouteResolver;
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
-	constructor(private readonly context: vscode.ExtensionContext) {
+	constructor(private readonly context: vscode.ExtensionContext, private readonly transport?: ZenTransportManager) {
 		this.registry = new ModelRegistry(context);
 		this.registry.onDidChange(() => this.onDidChangeEmitter.fire());
+		this.routeResolver = new GatewayRouteResolver(
+			context.workspaceState,
+			() => getGatewayCredential(context.secrets)
+		);
 	}
 
 	async refreshModels(force = false): Promise<void> {
 		if (force) {
 			this.registry.invalidate();
-			return;
 		}
 
 		// Best-effort refresh, but don't crash activation.
 		try {
-			await this.registry.getModels({ force: true });
+			const auth = await getInferenceAuth(this.context.secrets);
+			await this.registry.getModels({ force: true, anonymous: auth.apiKey === 'public' });
 			this.onDidChangeEmitter.fire();
-		} catch {
-			// ignore
+		} catch (err) {
+			getOutputChannel().error(`Model refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+		await this.refreshRoutes(force);
+	}
+
+	private async refreshRoutes(force: boolean): Promise<void> {
+		try {
+			const routes = await this.routeResolver.refresh(force);
+			if (routes) {
+				getOutputChannel().info(
+					`OpenCode Console routes refreshed (${Object.keys(routes.go).length} go, ${Object.keys(routes.zen).length} zen).`
+				);
+			}
+		} catch (err) {
+			getOutputChannel().warn(`Route discovery failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
 
-	provideLanguageModelChatInformation(
+	private async resolveRoute(modelId: string): Promise<ResolvedGatewayRoute | undefined> {
+		try {
+			return await this.routeResolver.resolve(modelId);
+		} catch (err) {
+			getOutputChannel().warn(`Route lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+			return undefined;
+		}
+	}
+
+	async provideLanguageModelChatInformation(
 		_options: vscode.PrepareLanguageModelChatModelOptions,
 		_token: vscode.CancellationToken
-	): vscode.ProviderResult<vscode.LanguageModelChatInformation[]> {
+	): Promise<vscode.LanguageModelChatInformation[]> {
 		void _options;
 		void _token;
-		return getApiKey(this.context.secrets)
-			.then((apiKey) => this.registry.getModels({ hasKey: Boolean(apiKey && apiKey.trim()) }))
-			.catch((err) => {
+		try {
+			const auth = await getInferenceAuth(this.context.secrets);
+			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
+			await this.refreshRoutes(false);
+			return models;
+		} catch (err) {
 			// If model metadata fetch fails, surface no models rather than throwing.
-			console.error(err);
+			getOutputChannel().error(`Model discovery failed: ${err instanceof Error ? err.message : String(err)}`);
 			return [];
-			});
+		}
 	}
 
 	async provideLanguageModelChatResponse(
@@ -55,18 +89,41 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
-		const storedApiKey = await getApiKey(this.context.secrets);
-		const apiKey = storedApiKey?.trim() ? storedApiKey : 'public';
+		const transportEndpoint = await this.transport?.getEndpoint();
+		const auth = await getInferenceAuth(this.context.secrets);
 
 		const abortController = new AbortController();
 		token.onCancellationRequested(() => abortController.abort());
 
 		const toolMode = options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto';
-		const requestToolMode = model.id.endsWith('-go') && toolMode === 'required' ? 'auto' : toolMode;
-		const providerInfo = await this.registry.getModelProviderInfo(model.id);
+		const route = await this.resolveRoute(model.id);
+		const metadata = await this.registry.getModelProviderInfo(model.id);
+		const providerInfo = route
+			? {
+				npm: sdkPackageForProtocol(route.route.protocol),
+				api: providerBaseUrl(route.route),
+				headers: metadata?.headers,
+				options: metadata?.options,
+				originalModelId: route.route.model_id,
+			}
+			: metadata;
+		const isGoLane = route?.plan === 'go' || (!route && model.id.endsWith('-go'));
+		const requestToolMode = isGoLane && toolMode === 'required' ? 'auto' : toolMode;
 		const requestModelId = providerInfo?.originalModelId ?? model.id;
 		const requestMeta = await getOrCreateRequestMetadata(this.context, options);
 		const toolNameMap = buildToolNameMap(options.tools, providerInfo?.npm);
+		const declaredToolNames = [...toolNameMap.toProvider.values()];
+		const renames = buildToolRenames(declaredToolNames);
+		const toolAliases = new Map(
+			declaredToolNames.map((name) => [name, renames.wire(name) ?? clientToolWireName(name)])
+		);
+		for (const [vscodeName, providerName] of toolNameMap.toProvider) {
+			toolNameMap.toVsCode.set(providerName, vscodeName);
+		}
+		const resolveToolName = (wire: string): string => {
+			const declared = renames.resolve(wire);
+			return toolNameMap.toVsCode.get(declared) ?? declared;
+		};
 		const tools = options.tools ? toolsToAiSdkTools(options.tools, toolNameMap.toProvider) : undefined;
 		const coreMessages = messagesToAiSdkMessages(messages, toolNameMap.toProvider);
 		const promptCaching = getPromptCachingConfig();
@@ -93,7 +150,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		}
 
 		const { debugFlag, modelOptions } = splitDebugOptions(options.modelOptions);
-		const providerOptions = buildProviderOptions(
+		const baseProviderOptions = buildProviderOptions(
 			modelOptions,
 			providerInfo?.npm,
 			promptCacheKey,
@@ -101,7 +158,17 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			model.id,
 			providerInfo?.options
 		);
-		const requestHeaders = buildRequestHeaders(requestMeta, providerInfo?.headers);
+		const providerOptions = baseProviderOptions;
+		const cliContext: CliRequestContext = {
+			sessionId: requestMeta.sessionId,
+			projectId: projectId(projectForWorkdir(requestMeta.workdir)),
+			modelId: requestModelId,
+			workdir: requestMeta.workdir,
+			modelHeaders: providerInfo?.headers,
+			toolAliases,
+			shapeBody: providerInfo?.npm === '@ai-sdk/openai-compatible',
+		};
+		const requestHeaders = buildCliHeaders(cliContext);
 
 		if (debugFlag) {
 			logDebugRequest(model, requestModelId, requestToolMode, options, coreMessages, tools, providerInfo, providerOptions);
@@ -110,7 +177,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		try {
 			await streamZen(
 				{
-					apiKey,
+					apiKey: auth.apiKey,
 					modelId: requestModelId,
 					messages: cachedMessages,
 					tools,
@@ -120,9 +187,11 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 					providerNpm: providerInfo?.npm,
 					baseURL: providerInfo?.api,
 					headers: requestHeaders,
-					toolNameMap: toolNameMap.toVsCode,
+					resolveToolName,
 					debugLogging: debugFlag,
 					includeUsage: promptCaching.enabled,
+					cliContext,
+					baseFetch: transportEndpoint?.fetch,
 				},
 				{
 					onTextDelta: (delta) => {
@@ -427,10 +496,9 @@ type PromptCachingConfig = {
 };
 
 type RequestMetadata = {
-	projectId: string;
+	workdir: string;
 	sessionId: string;
 	requestId: string;
-	client: string;
 };
 
 function getPromptCachingConfig(): PromptCachingConfig {
@@ -447,26 +515,23 @@ async function getOrCreateRequestMetadata(
 	context: vscode.ExtensionContext,
 	options: vscode.ProvideLanguageModelChatResponseOptions
 ): Promise<RequestMetadata> {
-	const sessionStorageKey = 'opencodeZen.requestSessionId';
-	let sessionId = context.workspaceState.get<string>(sessionStorageKey);
-	if (!sessionId) {
-		sessionId = randomUUID();
-		await context.workspaceState.update(sessionStorageKey, sessionId);
+	const sessionStorageKey = 'opencodeZen.cliSessionId';
+	const stored = context.workspaceState.get<string>(sessionStorageKey);
+	const stableSessionId = stored && isCanonicalSessionId(stored) ? stored : sessionId();
+	if (stableSessionId !== stored) {
+		await context.workspaceState.update(sessionStorageKey, stableSessionId);
 	}
 
-	const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-	const projectId = workspaceFolder?.name || 'default';
-	const requestId = randomUUID();
-	const client = `vscode-opencode-zen/${context.extension.packageJSON.version}`;
+	const workdir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+	const requestId = messageId();
 
 	const overriddenSessionId = tryGetModelOptionString(options.modelOptions, 'sessionID')
 		?? tryGetModelOptionString(options.modelOptions, 'sessionId');
 
 	return {
-		projectId,
-		sessionId: overriddenSessionId ?? sessionId,
+		workdir,
+		sessionId: overriddenSessionId && isCanonicalSessionId(overriddenSessionId) ? overriddenSessionId : stableSessionId,
 		requestId,
-		client,
 	};
 }
 
@@ -483,19 +548,6 @@ function tryGetModelOptionString(
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function buildRequestHeaders(
-	meta: RequestMetadata,
-	modelHeaders: Record<string, string> | undefined
-): Record<string, string> {
-	return {
-		'x-opencode-project': meta.projectId,
-		'x-opencode-session': meta.sessionId,
-		'x-opencode-request': meta.requestId,
-		'x-opencode-client': meta.client,
-		...(modelHeaders ?? {}),
-	};
 }
 
 function buildAnthropicCacheControl(ttl: '5m' | '1h' | 'none'): { type: 'ephemeral'; ttl?: '5m' | '1h' } {
