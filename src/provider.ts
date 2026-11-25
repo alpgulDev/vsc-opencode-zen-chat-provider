@@ -31,6 +31,7 @@ const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
 type AuthMethod = 'oauth' | 'apiKey' | 'signOut';
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
+	readonly silent?: boolean;
 	readonly configuration?: { readonly authMethod?: AuthMethod; readonly apiKey?: string; readonly lane?: string };
 };
 
@@ -235,15 +236,12 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			let auth: InferenceAuth | undefined;
 
 			if (configuration !== undefined) {
-				if (configuration.authMethod === undefined && configuration.apiKey === undefined && configuration.lane === undefined) {
-					return [];
-				}
 				await this.markByokGroupConfigured();
-				auth = await this.ensureGroupAuth(
-					configuredAuthMethod(configuration),
-					configuredApiKey(configuration),
-					token
+				const authMethod = configuredAuthMethod(configuration);
+				getOutputChannel().info(
+					`OpenCode Zen group resolved: authMethod=${authMethod}, apiKey=${configuredApiKey(configuration) ? 'set' : 'unset'}, silent=${options.silent === true}.`
 				);
+				auth = await this.ensureGroupAuth(authMethod, configuredApiKey(configuration), token);
 				if (!auth) {
 					return [];
 				}
