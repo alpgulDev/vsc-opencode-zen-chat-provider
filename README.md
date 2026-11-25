@@ -50,7 +50,7 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
   - `OAuth` starts device sign-in and waits for completion (or a timeout/failure error with Retry).
   - `API Key` uses a password-masked prompt that rejects empty input and stores the key in **SecretStorage**.
   - Models are registered only after the chosen auth flow succeeds; on failure an error with **Retry** is shown and no models are exposed.
-  - Existing VS Code Add Models groups with `authMethod` / `lane` settings are still honored.
+  - Groups created by earlier builds no longer block this wizard. Once the wizard completes, its saved auth/lane takes precedence over those legacy groups.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
   - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes the registered vendors.
 - `OpenCode Zen: Revert Agents Window Support` (`opencodeZen.revertAgentsWindowSupport`)
@@ -69,6 +69,6 @@ Standalone sign-in, sign-out and self-test commands were removed; authentication
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
 - OAuth credentials and API keys are stored in **SecretStorage**. `Anonymous` explicitly uses the public `Bearer public` lane.
 - The provider contribution declares `managementCommand`, so VS Code's **Add Models** action resolves models with `silent: false` instead of immediately creating a group. The extension uses that signal to run auth and lane selection first; no models are exposed until it succeeds. On failure an error notification with **Retry** is shown.
-- Existing VS Code provider groups created by earlier builds remain supported via their `authMethod` / `lane` configuration.
+- Existing VS Code provider groups created by earlier builds remain supported until the wizard is completed; after that, the wizard's saved auth/lane is authoritative and legacy groups are ignored to avoid duplicate or stale credentials.
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).

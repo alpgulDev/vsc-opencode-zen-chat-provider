@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Start a fresh device sign-in when an OAuth group is selected, instead of silently reusing a stored credential. Repeat resolutions reuse the in-flight/finished sign-in.
 - Hide ungrouped models for both Chat and Agents vendors while a BYOK group is configured, so anonymous models do not appear before the group's OAuth/API key setup completes.
 - Use the provider `managementCommand` hook so **Add Models** runs an extension-owned auth/lane wizard before any models are registered. OAuth failure or timeout now shows an error with Retry instead of silently exposing models.
+- Fix Add Models doing nothing when a legacy provider group was still present: the wizard now runs before legacy-group hiding, and completed wizard setup takes precedence over legacy groups.
 
 ## [0.1.3] - 2026-01-27
 
