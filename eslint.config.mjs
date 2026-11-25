@@ -8,6 +8,14 @@ export default tseslint.config(
 	eslint.configs.recommended,
 	...tseslint.configs.recommended,
 	{
+		files: ['**/*.mjs'],
+		languageOptions: {
+			ecmaVersion: 2022,
+			sourceType: 'module',
+			globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly', fetch: 'readonly' }
+		}
+	},
+	{
 		files: ['**/*.ts'],
 		languageOptions: {
 			ecmaVersion: 2022,

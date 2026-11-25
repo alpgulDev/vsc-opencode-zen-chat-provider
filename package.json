@@ -30,10 +30,12 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:opencodeZen.setApiKey",
-    "onCommand:opencodeZen.clearApiKey",
+    "onCommand:opencodeZen.signIn",
+    "onCommand:opencodeZen.signOut",
     "onCommand:opencodeZen.refreshModels",
-    "onCommand:opencodeZen.selfTest"
+    "onCommand:opencodeZen.restartTransport",
+    "onCommand:opencodeZen.selfTest",
+    "onCommand:opencodeZen.selfTestOnce"
   ],
   "contributes": {
     "languageModelChatProviders": [
@@ -44,20 +46,28 @@
     ],
     "commands": [
       {
-        "command": "opencodeZen.setApiKey",
-        "title": "OpenCode Zen: Set API Key"
+        "command": "opencodeZen.signIn",
+        "title": "OpenCode Zen: Sign In"
       },
       {
-        "command": "opencodeZen.clearApiKey",
-        "title": "OpenCode Zen: Clear API Key"
+        "command": "opencodeZen.signOut",
+        "title": "OpenCode Zen: Sign Out"
       },
       {
         "command": "opencodeZen.refreshModels",
         "title": "OpenCode Zen: Refresh Model List"
       },
       {
+        "command": "opencodeZen.restartTransport",
+        "title": "OpenCode Zen: Restart Bun-Compatible Transport"
+      },
+      {
         "command": "opencodeZen.selfTest",
         "title": "OpenCode Zen: Self Test"
+      },
+      {
+        "command": "opencodeZen.selfTestOnce",
+        "title": "OpenCode Zen: Self Test (One Request)"
       }
     ],
     "configuration": {
@@ -67,7 +77,17 @@
           "type": "number",
           "default": 60,
           "minimum": 0,
-          "description": "How long to cache models.dev model metadata before refetching. 0 disables caching."
+          "description": "How long to cache model metadata before refetching. 0 disables caching."
+        },
+        "opencodeZen.transport.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the extension-owned Bun-compatible HTTP transport and route inference through it."
+        },
+        "opencodeZen.transport.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to a locally built zen-transport executable. Overrides the bundled helper."
         },
         "opencodeZen.promptCaching.enabled": {
           "type": "boolean",
@@ -96,10 +116,12 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "lint": "eslint"
+    "vscode:prepublish": "npm run compile && npm run build:gateway",
+    "compile": "node scripts/copy-assets.mjs && tsc -p ./",
+    "build:gateway": "node scripts/build-gateway.mjs",
+    "watch": "node scripts/copy-assets.mjs && tsc -watch -p ./",
+    "lint": "eslint",
+    "test:parity": "npm run compile && npm run build:gateway && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.15",

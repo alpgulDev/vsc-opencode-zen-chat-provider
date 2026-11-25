@@ -4,6 +4,9 @@
 .gitignore
 .context/**
 src/**
+scripts/**
+gateway/**
+test/**
 AGENTS.md
 PRD.md
 eslint.config.mjs
