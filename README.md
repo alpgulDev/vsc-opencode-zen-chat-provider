@@ -47,9 +47,9 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
   - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
   - In the group settings, choose `authMethod`:
-    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required.
-    - `apiKey` uses the `apiKey` you enter in the group (stored by VS Code as a secret).
-    - `signOut` clears the stored OAuth credential and API key.
+    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required. If a device credential already exists, no browser opens because sign-in is already complete.
+    - `apiKey` prompts the extension for a key (password-masked, empty values rejected) and stores it in **SecretStorage**. VS Code does not ask for a group `apiKey` itself.
+    - `signOut` clears the stored OAuth credential and API key; select `oauth` again to force a fresh device sign-in.
   - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
   - The command offers to enable `chat.agentHost.byokModels.enabled` if it is off.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
@@ -68,6 +68,6 @@ Sign-in, sign-out and self-test commands were removed; authentication is managed
 - On activation the extension also enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
-- With `authMethod: oauth`, device credentials are stored in **SecretStorage**. With no signed-in credential and no group, requests fall back to `Bearer public` (matching the OpenCode CLI anonymous lane).
+- With `authMethod: oauth`, device credentials are stored in **SecretStorage**. With no signed-in credential and no group, requests fall back to `Bearer public` (matching the OpenCode CLI anonymous lane). The Add Models `apiKey` property is intentionally not promptable; API keys are entered through the extension's own secure prompt.
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).
