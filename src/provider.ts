@@ -4,7 +4,16 @@ import { buildCliHeaders, buildToolRenames, clientToolWireName, projectForWorkdi
 import { GatewayRouteResolver, providerBaseUrl, sdkPackageForProtocol, type ResolvedGatewayRoute } from './gatewayRoutes';
 import type { ZenTransportManager } from './zenTransport';
 import { isCanonicalSessionId, messageId, sessionId } from './identity';
-import { getGatewayCredential, getInferenceAuth, storeByokApiKey, type InferenceAuth } from './oauth';
+import {
+	clearByokApiKey,
+	clearCredential,
+	getGatewayCredential,
+	getInferenceAuth,
+	getOAuthInferenceAuth,
+	signIn,
+	storeByokApiKey,
+	type InferenceAuth,
+} from './oauth';
 import { ModelRegistry } from './modelRegistry';
 import { OPENAI_COMPAT_PROVIDER_NAME, streamZen } from './zenClient';
 import { getOutputChannel } from './output';
@@ -17,9 +26,12 @@ const AGENT_MODEL_SUFFIX = '::agent-host';
 const AGENT_SESSION_TYPE = 'copilotcli';
 
 const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
+const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
+
+type AuthMethod = 'oauth' | 'apiKey' | 'signOut';
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
-	readonly configuration?: { readonly apiKey?: string; readonly lane?: string };
+	readonly configuration?: { readonly authMethod?: AuthMethod; readonly apiKey?: string; readonly lane?: string };
 };
 
 type ResponseOptionsWithConfig = vscode.ProvideLanguageModelChatResponseOptions & {
@@ -27,9 +39,18 @@ type ResponseOptionsWithConfig = vscode.ProvideLanguageModelChatResponseOptions 
 	readonly configuration?: Record<string, unknown>;
 };
 
-function configuredApiKey(configuration: Record<string, unknown> | undefined): string | undefined {
-	const value = configuration?.apiKey;
+function configuredValue(configuration: Record<string, unknown> | undefined, key: string): string | undefined {
+	const value = configuration?.[key];
 	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function configuredApiKey(configuration: Record<string, unknown> | undefined): string | undefined {
+	return configuredValue(configuration, 'apiKey');
+}
+
+function configuredAuthMethod(configuration: Record<string, unknown> | undefined): AuthMethod {
+	const value = configuredValue(configuration, 'authMethod');
+	return value === 'apiKey' || value === 'signOut' ? value : 'oauth';
 }
 
 export function modelsForLane(
@@ -55,6 +76,8 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
 	private readonly apiKeysByModelId = new Map<string, string>();
 	private readonly byokGroupStateKey: string;
+	private oauthPromptInFlight: Promise<void> | undefined;
+	private lastGroupAuthMethod: AuthMethod | undefined;
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
 	constructor(
@@ -117,6 +140,66 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		await this.context.globalState.update(this.byokGroupStateKey, true);
 	}
 
+	private async ensureGroupAuth(
+		authMethod: AuthMethod,
+		apiKey: string | undefined,
+		token: vscode.CancellationToken
+	): Promise<InferenceAuth | undefined> {
+		if (authMethod === 'signOut') {
+			if (this.lastGroupAuthMethod !== 'signOut') {
+				await clearCredential(this.context.secrets);
+				await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
+				getOutputChannel().info('OpenCode Zen signed out from the Add Models group.');
+				this.lastGroupAuthMethod = 'signOut';
+			}
+			this.onDidChangeEmitter.fire();
+			return undefined;
+		}
+
+		this.lastGroupAuthMethod = authMethod;
+
+		if (authMethod === 'apiKey') {
+			if (!apiKey) {
+				getOutputChannel().warn('OpenCode Zen API key group needs an apiKey. Edit the group and add one.');
+				return undefined;
+			}
+			await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
+			await storeByokApiKey(this.context.secrets, apiKey);
+			return { apiKey };
+		}
+
+		await clearByokApiKey(this.context.secrets);
+		const existing = await getOAuthInferenceAuth(this.context.secrets);
+		if (existing) {
+			return existing;
+		}
+		if (this.context.globalState.get<boolean>(OAUTH_PROMPTED_STATE_KEY, false)) {
+			return undefined;
+		}
+		if (!this.oauthPromptInFlight) {
+			await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, true);
+			const controller = new AbortController();
+			const subscription = token.onCancellationRequested(() => controller.abort());
+			this.oauthPromptInFlight = (async () => {
+				try {
+					await signIn(this.context.secrets, controller.signal);
+					getOutputChannel().info('OpenCode Zen OAuth sign-in completed from the Add Models group.');
+					this.onDidChangeEmitter.fire();
+				} catch (err) {
+					if (!controller.signal.aborted) {
+						const message = err instanceof Error ? err.message : String(err);
+						getOutputChannel().error(`OpenCode Zen OAuth sign-in failed: ${message}`);
+					}
+				}
+			})().finally(() => {
+				subscription.dispose();
+				this.oauthPromptInFlight = undefined;
+			});
+		}
+		await this.oauthPromptInFlight;
+		return getOAuthInferenceAuth(this.context.secrets);
+	}
+
 	private rememberApiKey(modelId: string, apiKey: string): void {
 		this.apiKeysByModelId.set(modelId, apiKey);
 		const rawId = rawModelId(modelId);
@@ -142,21 +225,32 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 	async provideLanguageModelChatInformation(
 		options: GroupedModelOptions,
-		_token: vscode.CancellationToken
+		token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]> {
-		void _token;
 		try {
 			const configuration = options.configuration;
-			const configuredKey = configuredApiKey(configuration);
+			let auth: InferenceAuth | undefined;
 
-			if (configuredKey) {
+			if (configuration !== undefined) {
+				if (configuration.authMethod === undefined && configuration.apiKey === undefined && configuration.lane === undefined) {
+					return [];
+				}
 				await this.markByokGroupConfigured();
-				await storeByokApiKey(this.context.secrets, configuredKey);
-			} else if (configuration !== undefined || (!this.agentVariant && this.hasByokGroupConfigured())) {
-				return [];
+				auth = await this.ensureGroupAuth(
+					configuredAuthMethod(configuration),
+					configuredApiKey(configuration),
+					token
+				);
+				if (!auth) {
+					return [];
+				}
+			} else {
+				if (!this.agentVariant && this.hasByokGroupConfigured()) {
+					return [];
+				}
+				auth = await getInferenceAuth(this.context.secrets);
 			}
 
-			const auth = configuredKey ? { apiKey: configuredKey } : await getInferenceAuth(this.context.secrets);
 			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
 			await this.refreshRoutes(false);
 

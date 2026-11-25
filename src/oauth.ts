@@ -73,15 +73,14 @@ export async function storeByokApiKey(secrets: vscode.SecretStorage, apiKey: str
 	}
 }
 
-export async function getInferenceAuth(secrets: vscode.SecretStorage): Promise<InferenceAuth> {
-	const byokKey = await secrets.get(BYOK_SECRET_KEY);
-	if (byokKey?.trim()) {
-		return { apiKey: byokKey.trim() };
-	}
+export async function clearByokApiKey(secrets: vscode.SecretStorage): Promise<void> {
+	await secrets.delete(BYOK_SECRET_KEY);
+}
 
+export async function getOAuthInferenceAuth(secrets: vscode.SecretStorage): Promise<InferenceAuth | undefined> {
 	const credential = await readCredential(secrets);
 	if (!credential) {
-		return { apiKey: 'public' };
+		return undefined;
 	}
 	if (credential.expires > Date.now() + REFRESH_MARGIN_MS) {
 		return { apiKey: credential.access };
@@ -93,10 +92,15 @@ export async function getInferenceAuth(secrets: vscode.SecretStorage): Promise<I
 		});
 	}
 	const refreshed = await refreshInFlight;
-	if (!refreshed) {
-		return { apiKey: 'public' };
+	return refreshed ? { apiKey: refreshed.access } : undefined;
+}
+
+export async function getInferenceAuth(secrets: vscode.SecretStorage): Promise<InferenceAuth> {
+	const byokKey = await secrets.get(BYOK_SECRET_KEY);
+	if (byokKey?.trim()) {
+		return { apiKey: byokKey.trim() };
 	}
-	return { apiKey: refreshed.access };
+	return (await getOAuthInferenceAuth(secrets)) ?? { apiKey: 'public' };
 }
 
 export async function getGatewayCredential(secrets: vscode.SecretStorage): Promise<OAuthCredential | undefined> {
