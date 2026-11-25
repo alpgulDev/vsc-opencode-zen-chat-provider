@@ -73,8 +73,8 @@
 - **API error wrapping:** Provides user-friendly error messaging for Unauthorized and Not Found errors, with additional metadata.
 
 ### 8) VS Code Commands
-- **OpenCode Zen: Set API Key** (`opencodeZen.setApiKey`)
-- **OpenCode Zen: Clear API Key** (`opencodeZen.clearApiKey`)
+- **OpenCode Zen: Sign In** (`opencodeZen.signIn`)
+- **OpenCode Zen: Sign Out** (`opencodeZen.signOut`)
 - **OpenCode Zen: Refresh Model List** (`opencodeZen.refreshModels`)
 - **OpenCode Zen: Self Test** (`opencodeZen.selfTest`)
 
@@ -98,24 +98,24 @@
 - If fetch fails, returns an empty model list (no crashes).
 
 ### Request Flow
-1. Validate API key.
-2. Convert VS Code messages to AI SDK format.
+1. Resolve Console OAuth credential (or anonymous `public`) and canonical CLI IDs.
+2. Convert VS Code messages to AI SDK format and shape the body like the OpenCode CLI.
 3. Map tool names and schemas as needed.
 4. Stream responses and tool calls to VS Code.
 5. Log debug data if enabled.
 
 ## External Dependencies
-- **OpenCode Zen API:** Default base URL https://opencode.ai/zen/v1
+- **OpenCode Zen API:** Default base URL https://opencode.ai/inference/openai/v1 (Go: https://opencode.ai/inference/go/openai/v1)
 - **Models metadata:** https://models.dev/api.json
 - **AI SDK:** `ai`, `@ai-sdk/openai-compatible`, `@ai-sdk/openai`, `@ai-sdk/anthropic`
 
 ## Security & Privacy
-- API key stored only in VS Code `SecretStorage`.
+- Console OAuth access/refresh tokens stored only in VS Code `SecretStorage`.
 - HTTP logs redact Authorization and API key headers.
 - No user data is stored outside of VS Code and external API calls.
 
 ## Error Handling
-- Missing API key: User is instructed to run “OpenCode Zen: Set API Key”.
+- Missing credential: requests fall back to `Bearer public`; user can run “OpenCode Zen: Sign In”.
 - 401 errors: Wrapped with “Unauthorized” guidance.
 - 404 errors: Wrapped with “Model not found” guidance.
 - Self-test errors logged with model, tool, request/response details.

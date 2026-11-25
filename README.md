@@ -9,7 +9,7 @@ This extension provides **OpenCode Zen** models to VS Code via the **Language Mo
 
 - VS Code `^1.104`
 - Node.js (recent LTS recommended)
-- An OpenCode API key (`OPENCODE_API_KEY`)
+- An OpenCode Console account for signed-in access (device OAuth)
 
 ## Install
 
@@ -44,9 +44,9 @@ vsce package
 
 Open the command palette (`Ctrl/Cmd+Shift+P`):
 
-- `OpenCode Zen: Set API Key` (`opencodeZen.setApiKey`)
-  - Stores the key in **SecretStorage** (not in settings).
-- `OpenCode Zen: Clear API Key` (`opencodeZen.clearApiKey`)
+- `OpenCode Zen: Sign In` (`opencodeZen.signIn`)
+  - Device OAuth with OpenCode Console; access/refresh tokens are stored in **SecretStorage** (not in settings).
+- `OpenCode Zen: Sign Out` (`opencodeZen.signOut`)
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
   - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`).
 - `OpenCode Zen: Self Test` (`opencodeZen.selfTest`)
@@ -57,4 +57,6 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
-- If no API key is configured, requests use `apiKey: public` and only free OpenCode Zen models are shown (matching opencode behavior).
+- Without sign-in, requests use `Bearer public` (matching the OpenCode CLI anonymous lane).
+- Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
+- Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).

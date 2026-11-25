@@ -1,101 +1,127 @@
 import * as vscode from 'vscode';
-import { OpenCodeZenChatProvider, VENDOR_ID } from './provider';
+import { ZenTransportManager } from './zenTransport';
+import { clearCredential, signIn } from './oauth';
 import { getOutputChannel } from './output';
-import { clearApiKey, setApiKey } from './secrets';
+import { OpenCodeZenChatProvider, VENDOR_ID } from './provider';
 
 const SELF_TEST_TOOL_NAME = 'opencodeZen.selfTest.getTime';
+let activeTransport: ZenTransportManager | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
 	const output = getOutputChannel();
-	const provider = new OpenCodeZenChatProvider(context);
+	const transport = new ZenTransportManager(context);
+	activeTransport = transport;
+	const provider = new OpenCodeZenChatProvider(context, transport);
+
+	const selfTest = async (singleRequest: boolean): Promise<void> => {
+		if (!vscode.lm?.selectChatModels) {
+			output.error('VS Code Language Model API unavailable. Update VS Code to 1.104+.');
+			vscode.window.showWarningMessage('OpenCode Zen requires VS Code 1.104+ to run the self-test.');
+			return;
+		}
+
+		output.show(true);
+		output.info(singleRequest ? 'Starting one-request OpenCode Zen self-test...' : 'Starting OpenCode Zen self-test...');
+
+		const availableModels = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+		if (availableModels.length === 0) {
+			output.error('No OpenCode Zen models available. Run "OpenCode Zen: Sign In" and refresh models.');
+			return;
+		}
+
+		const picked = await vscode.window.showQuickPick(
+			availableModels.map((m) => ({ label: m.name, description: m.id, model: m })),
+			{ title: 'Select an OpenCode Zen model for self-test' }
+		);
+		if (!picked) {
+			return;
+		}
+
+		output.info(`Selected model: ${picked.model.name} (${picked.model.id})`);
+
+		const tool: vscode.LanguageModelChatTool = {
+			name: SELF_TEST_TOOL_NAME,
+			description: 'Returns the current time. Input: { tz?: string }',
+			inputSchema: {
+				type: 'object',
+				properties: { tz: { type: 'string', description: 'IANA time zone, optional' } },
+				additionalProperties: false,
+			},
+		};
+
+		const messages: vscode.LanguageModelChatMessage[] = [
+			vscode.LanguageModelChatMessage.User(
+				'Call the provided tool once, then explain what you did in one short paragraph.'
+			),
+		];
+
+		const cts = new vscode.CancellationTokenSource();
+		const runContext: SelfTestContext = {
+			modelId: picked.model.id,
+			modelName: picked.model.name,
+			toolName: tool.name,
+			toolMode: 'required',
+			iteration: 0,
+			lastAssistantChars: 0,
+		};
+		try {
+			await runToolLoop(picked.model, messages, tool, output, cts.token, runContext, singleRequest);
+			output.info('Self-test completed.');
+		} catch (err) {
+			logSelfTestFailure(output, err, runContext);
+		} finally {
+			cts.dispose();
+		}
+	};
 
 	context.subscriptions.push(
 		output,
-		vscode.commands.registerCommand('opencodeZen.setApiKey', async () => {
-			const key = await vscode.window.showInputBox({
-				prompt: 'Enter your OpenCode API key (OPENCODE_API_KEY)',
-				password: true,
-				ignoreFocusOut: true,
-			});
-			if (!key) {
-				return;
+		transport,
+		vscode.commands.registerCommand('opencodeZen.signIn', async () => {
+			const cancellation = new AbortController();
+			try {
+				const credential = await vscode.window.withProgress(
+					{ location: vscode.ProgressLocation.Notification, title: 'OpenCode Console sign-in', cancellable: true },
+					async (_progress, token) => {
+						token.onCancellationRequested(() => cancellation.abort());
+						return signIn(context.secrets, cancellation.signal);
+					}
+				);
+				vscode.window.showInformationMessage(
+					credential.email ? `Signed in to OpenCode Console as ${credential.email}.` : 'Signed in to OpenCode Console.'
+				);
+				await provider.refreshModels();
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				output.error(`OpenCode Console sign-in failed: ${message}`);
+				vscode.window.showWarningMessage(`OpenCode Console sign-in failed: ${message}`);
 			}
-			await setApiKey(context.secrets, key);
-			vscode.window.showInformationMessage('OpenCode Zen API key saved.');
-			provider.refreshModels();
 		}),
-		vscode.commands.registerCommand('opencodeZen.clearApiKey', async () => {
-			await clearApiKey(context.secrets);
-			vscode.window.showInformationMessage('OpenCode Zen API key cleared.');
+		vscode.commands.registerCommand('opencodeZen.signOut', async () => {
+			await clearCredential(context.secrets);
+			vscode.window.showInformationMessage('Signed out of OpenCode Console.');
 			provider.refreshModels();
 		}),
 		vscode.commands.registerCommand('opencodeZen.refreshModels', async () => {
 			await provider.refreshModels(true);
 			vscode.window.showInformationMessage('OpenCode Zen model list refreshed.');
 		}),
-		vscode.commands.registerCommand('opencodeZen.selfTest', async () => {
-			if (!vscode.lm?.selectChatModels) {
-				output.error('VS Code Language Model API unavailable. Update VS Code to 1.104+.');
-				vscode.window.showWarningMessage('OpenCode Zen requires VS Code 1.104+ to run the self-test.');
-				return;
+		vscode.commands.registerCommand('opencodeZen.restartTransport', async () => {
+			const endpoint = await transport.restart();
+			if (endpoint) {
+				vscode.window.showInformationMessage(`Bun-compatible transport restarted at ${endpoint.baseURL}.`);
+			} else {
+				vscode.window.showInformationMessage('Bun-compatible transport is disabled.');
 			}
-
-			output.clear();
-			output.show(true);
-			output.info('Starting OpenCode Zen self-test...');
-
-			const availableModels = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-			if (availableModels.length === 0) {
-				output.error('No OpenCode Zen models available. Set API key and refresh models.');
-				return;
-			}
-
-			const picked = await vscode.window.showQuickPick(
-				availableModels.map((m) => ({ label: m.name, description: m.id, model: m })),
-				{ title: 'Select an OpenCode Zen model for self-test' }
-			);
-			if (!picked) {
-				return;
-			}
-
-			output.info(`Selected model: ${picked.model.name} (${picked.model.id})`);
-
-			const tool: vscode.LanguageModelChatTool = {
-				name: SELF_TEST_TOOL_NAME,
-				description: 'Returns the current time. Input: { tz?: string }',
-				inputSchema: {
-					type: 'object',
-					properties: { tz: { type: 'string', description: 'IANA time zone, optional' } },
-					additionalProperties: false,
-				},
-			};
-
-			const messages: vscode.LanguageModelChatMessage[] = [
-				vscode.LanguageModelChatMessage.User(
-					'Call the provided tool once, then explain what you did in one short paragraph.'
-				),
-			];
-
-			const cts = new vscode.CancellationTokenSource();
-			const runContext: SelfTestContext = {
-				modelId: picked.model.id,
-				modelName: picked.model.name,
-				toolName: tool.name,
-				toolMode: 'required',
-				iteration: 0,
-				lastAssistantChars: 0,
-			};
-			try {
-				await runToolLoop(picked.model, messages, tool, output, cts.token, runContext);
-				output.info('Self-test completed.');
-			} catch (err) {
-				logSelfTestFailure(output, err, runContext);
-				return;
-			} finally {
-				cts.dispose();
-			}
-		})
+		}),
+		vscode.commands.registerCommand('opencodeZen.selfTest', () => selfTest(false)),
+		vscode.commands.registerCommand('opencodeZen.selfTestOnce', () => selfTest(true))
 	);
+
+	void transport.getEndpoint().catch((err: unknown) => {
+		const message = err instanceof Error ? err.message : String(err);
+		output.error(`Bun-compatible transport startup failed: ${message}`);
+	});
 
 	try {
 		if (!vscode.lm?.registerLanguageModelChatProvider) {
@@ -286,7 +312,8 @@ async function runToolLoop(
 	tool: vscode.LanguageModelChatTool,
 	output: vscode.LogOutputChannel,
 	token: vscode.CancellationToken,
-	context: SelfTestContext
+	context: SelfTestContext,
+	singleRequest: boolean
 ): Promise<void> {
 	for (let i = 0; i < 5; i++) {
 		context.iteration = i + 1;
@@ -338,6 +365,11 @@ async function runToolLoop(
 
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
+		if (singleRequest) {
+			output.info('Self-test stopped after one inference request.');
+			return;
+		}
+
 		if (toolCalls.length === 0) {
 			return;
 		}
@@ -363,4 +395,7 @@ async function runToolLoop(
 	throw new Error('Self-test exceeded max tool-call iterations (5).');
 }
 
-export function deactivate() {}
+export async function deactivate(): Promise<void> {
+	await activeTransport?.stop();
+	activeTransport = undefined;
+}

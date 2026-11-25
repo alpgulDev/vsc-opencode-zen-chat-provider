@@ -55,6 +55,7 @@ export class ModelRegistry {
 
 	private cachedAtMs: number | undefined;
 	private cachedModels: vscode.LanguageModelChatInformation[] | undefined;
+	private cachedAnonymous: boolean | undefined;
 	private providerDefaults: Map<string, { npm: string; api: string }> = new Map();
 	private modelProviderOverrides = new Map<string, string>();
 	private modelRequestMetadata = new Map<string, { headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string }>();
@@ -65,6 +66,7 @@ export class ModelRegistry {
 	invalidate(): void {
 		this.cachedAtMs = undefined;
 		this.cachedModels = undefined;
+		this.cachedAnonymous = undefined;
 		this.providerDefaults.clear();
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
@@ -72,13 +74,15 @@ export class ModelRegistry {
 		this._onDidChange.fire();
 	}
 
-	async getModels(options: { force?: boolean; hasKey?: boolean } = {}): Promise<vscode.LanguageModelChatInformation[]> {
+	async getModels(options: { force?: boolean; anonymous?: boolean } = {}): Promise<vscode.LanguageModelChatInformation[]> {
 		const ttlMinutes = this.context.workspaceState.get<number>('opencodeZen.modelCacheTtlMinutes.override')
 			?? vscode.workspace.getConfiguration('opencodeZen').get<number>('modelCacheTtlMinutes', 60);
 
 		const ttlMs = Math.max(0, ttlMinutes) * 60_000;
 		const now = Date.now();
-		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined) {
+
+		const anonymous = options.anonymous ?? false;
+		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous) {
 			if (ttlMs === 0 || now - this.cachedAtMs < ttlMs) {
 				return this.cachedModels;
 			}
@@ -135,15 +139,15 @@ export class ModelRegistry {
 		}
 
 		const isActiveModel = (model: ModelsDevModel) => model.status === undefined || model.status !== 'deprecated';
-		const hasKey = options.hasKey ?? true;
+		const isAvailableModel = (model: ModelsDevModel) => isActiveModel(model) && (!anonymous || model.cost?.input === 0);
 		const models = allModels
-			.filter(({ model }) => isActiveModel(model))
-			.filter(({ model }) => hasKey || model.cost?.input === 0)
+			.filter(({ model }) => isAvailableModel(model))
 			.sort((a, b) => a.model.name.localeCompare(b.model.name))
 			.map(({ provider, model, providerId, uniqueId }) => this.toChatInfo(provider, model, providerId, uniqueId));
 
 		this.cachedModels = models;
 		this.cachedAtMs = now;
+		this.cachedAnonymous = anonymous;
 		return models;
 	}
 

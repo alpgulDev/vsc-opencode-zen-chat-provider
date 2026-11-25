@@ -52,7 +52,7 @@ npm run lint
 
 - Wrap API errors with contextual messages (see `wrapApiError` in `zenClient.ts:13`)
 - Use `try/catch` blocks with `finally` for cleanup (e.g., cancellation tokens)
-- Surface user-friendly messages: "Run 'OpenCode Zen: Set API Key'" for missing credentials
+- Surface user-friendly messages: "Run 'OpenCode Zen: Sign In'" for missing credentials
 - Log errors to console or VS Code output channel, never throw during activation unless critical
 - Check for `instanceof Error` before accessing `err.message`
 
@@ -91,7 +91,7 @@ npm run lint
 ### API Communication
 
 - Use vercel `ai-sdk` for API Requests to the models. (which sdk should be used is defined per model by models.dev)
-- Base URL: `https://opencode.ai/zen/v1`
+- Base URL: `https://opencode.ai/inference/openai/v1` (Go lane: `https://opencode.ai/inference/go/openai/v1`)
 - Fetch model list from `https://models.dev/api.json`
 - Cache model metadata with configurable TTL (default 15 minutes)
 
