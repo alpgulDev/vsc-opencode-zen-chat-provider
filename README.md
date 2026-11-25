@@ -69,5 +69,6 @@ Sign-in, sign-out and self-test commands were removed; authentication is managed
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
 - With `authMethod: oauth`, device credentials are stored in **SecretStorage**. With no signed-in credential and no group, requests fall back to `Bearer public` (matching the OpenCode CLI anonymous lane). The Add Models `apiKey` property is intentionally not promptable; API keys are entered through the extension's own secure prompt.
+- VS Code saves the Add Models group before calling the provider, so the group entry itself appears immediately. The extension deliberately exposes no models for that vendor until OAuth/API key setup finishes; configured groups also hide anonymous ungrouped models in both the Chat and Agents pickers.
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).
