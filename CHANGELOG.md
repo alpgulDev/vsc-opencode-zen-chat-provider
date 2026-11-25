@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added optional secret `apiKey` and `lane` (`auto`, `zen`, `go`) group settings.
 - Removed the standalone self-test commands and self-test request loop.
 
+### Fixed
+
+- Treat an Add Models group with no explicit `authMethod` as OAuth. VS Code does not inject JSON schema defaults into provider group configuration, so leaving the default OAuth choice selected previously produced no sign-in.
+
 ## [0.1.3] - 2026-01-27
 
 ### Fixed

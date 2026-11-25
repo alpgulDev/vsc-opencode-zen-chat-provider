@@ -47,7 +47,7 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
   - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
   - In the group settings, choose `authMethod`:
-    - `oauth` (default) starts OpenCode Console device sign-in; no API key is required.
+    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required.
     - `apiKey` uses the `apiKey` you enter in the group (stored by VS Code as a secret).
     - `signOut` clears the stored OAuth credential and API key.
   - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
