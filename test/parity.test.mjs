@@ -797,6 +797,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /hasByokGroupConfigured/);
 	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
 	assert.match(source, /ensureGroupAuth\(/);
+	assert.match(source, /configuredApiKey\(configuration\) \? 'apiKey' : 'oauth'/);
 	assert.match(source, /getOAuthInferenceAuth\(this\.context\.secrets\)/);
 	assert.match(source, /clearCredential\(this\.context\.secrets\)/);
 	assert.match(source, /storeByokApiKey\(this\.context\.secrets, apiKey\)/);

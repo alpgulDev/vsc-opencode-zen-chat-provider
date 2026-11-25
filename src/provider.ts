@@ -50,7 +50,10 @@ function configuredApiKey(configuration: Record<string, unknown> | undefined): s
 
 function configuredAuthMethod(configuration: Record<string, unknown> | undefined): AuthMethod {
 	const value = configuredValue(configuration, 'authMethod');
-	return value === 'apiKey' || value === 'signOut' ? value : 'oauth';
+	if (value === 'apiKey' || value === 'signOut') {
+		return value;
+	}
+	return configuredApiKey(configuration) ? 'apiKey' : 'oauth';
 }
 
 export function modelsForLane(
