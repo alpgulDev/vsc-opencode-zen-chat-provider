@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked the Add Models group settings: `authMethod` selects `oauth`, `apiKey` or `signOut`, so VS Code no longer forces an API key. OAuth sign-in and sign-out now run from the group flow; the standalone `OpenCode Zen: Sign In` / `Sign Out` commands were removed.
 - Added optional secret `apiKey` and `lane` (`auto`, `zen`, `go`) group settings.
 - Removed the standalone self-test commands and self-test request loop.
-- Added opt-in `opencodeZen.onlyFreeModels` setting: zero-cost models stay visible while paid models are hidden in Chat and Agents. Zero-cost models are labelled `Free` in tooltips; anonymous resolution still follows the CLI `cost.input === 0` rule.
+- All models stay registered and visible in the Language Models editor. Zero-cost models are labelled `Free` and immediately selectable; paid models are passive (`isUserSelectable: false`) until enabled through the new `OpenCode Zen: Manage Paid Models` multi-select command. The removed `onlyFreeModels` setting is no longer needed.
 
 ### Fixed
 
