@@ -25,7 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		const availableModels = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		if (availableModels.length === 0) {
-			output.error('No OpenCode Zen models available. Run "OpenCode Zen: Sign In" and refresh models.');
+			output.error('No OpenCode Zen models available. Run "OpenCode Zen: Add Models" to create a model group, then sign in if needed.');
 			return;
 		}
 
@@ -74,9 +74,28 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	};
 
+	const addModels = async (): Promise<void> => {
+		await vscode.commands.executeCommand('workbench.action.chat.manage');
+		const byokEnabled = vscode.workspace.getConfiguration().get<boolean>('chat.agentHost.byokModels.enabled');
+		if (byokEnabled === false) {
+			const enable = await vscode.window.showWarningMessage(
+				'OpenCode Zen models require BYOK models in the Agents window.',
+				'Enable'
+			);
+			if (enable) {
+				await vscode.workspace.getConfiguration().update(
+					'chat.agentHost.byokModels.enabled',
+					true,
+					vscode.ConfigurationTarget.Global
+				);
+			}
+		}
+	};
+
 	context.subscriptions.push(
 		output,
 		transport,
+		vscode.commands.registerCommand('opencodeZen.addModels', addModels),
 		vscode.commands.registerCommand('opencodeZen.signIn', async () => {
 			const cancellation = new AbortController();
 			try {
