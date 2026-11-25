@@ -5,6 +5,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, type ModelMessage } from 'ai';
 import { createCliFetch, type CliRequestContext } from './cliShaping';
 import { getOutputChannel } from './output';
+import { normalizeUsage, type ZenUsage } from './usage';
 
 export const ZEN_BASE_URL = 'https://opencode.ai/inference/openai/v1';
 export const ZEN_GO_BASE_URL = 'https://opencode.ai/inference/go/openai/v1';
@@ -29,6 +30,7 @@ export type ToolMode = 'auto' | 'required';
 export type StreamCallbacks = {
 	onTextDelta: (delta: string) => void;
 	onToolCall: (args: { toolCallId: string; toolName: string; input: object }) => void;
+	onUsage?: (usage: ZenUsage) => void;
 };
 
 type ApiErrorDetails = {
@@ -193,7 +195,6 @@ export async function streamZen(
 		baseURL?: string;
 		toolNameMap?: ReadonlyMap<string, string>;
 		resolveToolName?: (name: string) => string;
-		includeUsage?: boolean;
 		cliContext?: CliRequestContext;
 		baseFetch?: typeof fetch;
 	},
@@ -215,8 +216,7 @@ export async function streamZen(
 		providerNpm,
 		options.apiKey,
 		baseURL,
-		fetchImpl,
-		options.includeUsage
+		fetchImpl
 	);
 	const endpointPath = getEndpointPath(providerNpm);
 
@@ -228,17 +228,6 @@ export async function streamZen(
 		toolChoice: options.tools ? options.toolMode : undefined,
 		abortSignal: options.abortSignal,
 		providerOptions: options.providerOptions,
-		onFinish: options.includeUsage
-			? (result) => {
-				const cachedTokens = extractCachedTokens(result?.usage);
-				if (cachedTokens) {
-					const output = getOutputChannel();
-					output.info(
-						`Prompt cache: read=${cachedTokens.read ?? 0}, write=${cachedTokens.write ?? 0}, cached=${cachedTokens.cached ?? 0}`
-					);
-				}
-			}
-			: undefined,
 	});
 
 	const requestBody: Record<string, unknown> = {
@@ -300,14 +289,26 @@ export async function streamZen(
 	if (!emitted) {
 		callbacks.onTextDelta(sawAnyChunk ? '\n' : 'No response returned by model.');
 	}
+
+	const usage = normalizeUsage(await result.usage);
+	if (usage) {
+		callbacks.onUsage?.(usage);
+		const output = getOutputChannel();
+		output.info(
+			`Usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, ` +
+			`total=${usage.totalTokens}, cached=${usage.cachedTokens}`
+		);
+		if (usage.cacheWriteTokens > 0) {
+			output.info(`Prompt cache: write=${usage.cacheWriteTokens}`);
+		}
+	}
 }
 
 function createProvider(
 	providerNpm: string,
 	apiKey: string,
 	baseURL: string,
-	fetchImpl?: typeof fetch,
-	includeUsage?: boolean
+	fetchImpl?: typeof fetch
 ): (modelId: string) => any {
 	switch (providerNpm) {
 		case '@ai-sdk/anthropic':
@@ -323,7 +324,7 @@ function createProvider(
 				apiKey,
 				baseURL,
 				fetch: fetchImpl,
-				includeUsage,
+				includeUsage: true,
 				transformRequestBody: (args) => applyOpenAICompatibleCaching(args),
 			});
 	}
@@ -398,22 +399,6 @@ function extractCompatibleProviderOptions(args: Record<string, any>): Record<str
 	}
 
 	return undefined;
-}
-
-function extractCachedTokens(usage: any): { read?: number; write?: number; cached?: number } | undefined {
-	if (!usage || typeof usage !== 'object') {
-		return undefined;
-	}
-	const cached =
-		usage?.prompt_tokens_details?.cached_tokens ??
-		usage?.input_tokens_details?.cached_tokens ??
-		usage?.cached_tokens;
-	const read = usage?.cache_read_input_tokens ?? usage?.cache_read_tokens;
-	const write = usage?.cache_creation_input_tokens ?? usage?.cache_write_tokens;
-	if (cached == null && read == null && write == null) {
-		return undefined;
-	}
-	return { cached, read, write };
 }
 
 function getEndpointPath(providerNpm: string): string {

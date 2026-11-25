@@ -8,6 +8,7 @@ import { getGatewayCredential, getInferenceAuth } from './oauth';
 import { ModelRegistry } from './modelRegistry';
 import { OPENAI_COMPAT_PROVIDER_NAME, streamZen } from './zenClient';
 import { getOutputChannel } from './output';
+import { toCopilotUsage, VSCODE_USAGE_MIME_TYPE, type ZenUsage } from './usage';
 
 export const VENDOR_ID = 'opencode';
 
@@ -177,6 +178,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 		let textChars = 0;
 		let toolCalls = 0;
+		let usage: ZenUsage | undefined;
 
 		try {
 			await streamZen(
@@ -193,7 +195,6 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 					headers: requestHeaders,
 					resolveToolName,
 					debugLogging: debugFlag,
-					includeUsage: promptCaching.enabled,
 					cliContext,
 					baseFetch: transportEndpoint?.fetch,
 				},
@@ -208,9 +209,17 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 						toolCalls++;
 						progress.report(new vscode.LanguageModelToolCallPart(toolCallId, toolName, input));
 					},
+					onUsage: (snapshot) => {
+						usage = snapshot;
+						// Copilot reads token counts from this internal usage data part.
+						progress.report(new vscode.LanguageModelDataPart(
+							new TextEncoder().encode(JSON.stringify(toCopilotUsage(snapshot))),
+							VSCODE_USAGE_MIME_TYPE
+						));
+					},
 				}
 			);
-			finishRequestDiagnostics(requestDiagnostics, textChars, toolCalls);
+			finishRequestDiagnostics(requestDiagnostics, textChars, toolCalls, usage);
 		} catch (err) {
 			failRequestDiagnostics(requestDiagnostics, err);
 			if (debugFlag) {
@@ -254,10 +263,18 @@ function startRequestDiagnostics(
 	return diagnostics;
 }
 
-function finishRequestDiagnostics(diagnostics: RequestDiagnostics, textChars: number, toolCalls: number): void {
+function finishRequestDiagnostics(
+	diagnostics: RequestDiagnostics,
+	textChars: number,
+	toolCalls: number,
+	usage?: ZenUsage
+): void {
+	const tokenInfo = usage
+		? `; tokens=${usage.promptTokens}/${usage.completionTokens}/${usage.totalTokens}, cached=${usage.cachedTokens}`
+		: '';
 	getOutputChannel().info(
 		`Request ${diagnostics.id} completed in ${Date.now() - diagnostics.startedAt}ms: ` +
-		`textChars=${textChars}, toolCalls=${toolCalls}.`
+		`textChars=${textChars}, toolCalls=${toolCalls}${tokenInfo}.`
 	);
 }
 

@@ -11,6 +11,7 @@ const gatewayRoutes = await import(join(root, 'out', 'gatewayRoutes.js'));
 const identity = await import(join(root, 'out', 'identity.js'));
 const shaping = await import(join(root, 'out', 'cliShaping.js'));
 const toolRenames = await import(join(root, 'out', 'toolRenames.js'));
+const usage = await import(join(root, 'out', 'usage.js'));
 
 const ID_PATTERN = /^(ses|msg)_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 
@@ -469,6 +470,60 @@ test('source no longer contains manual API key or random VS Code IDs', () => {
 	assert.match(clientSource, /retry-after/);
 	assert.equal(clientSource.includes('retryRequest'), false);
 	assert.match(clientSource, /if \(part\.type === 'reasoning-delta'\) \{\s*continue;\s*\}/);
+	assert.match(clientSource, /callbacks\.onUsage\?\.\(usage\)/);
+	assert.match(clientSource, /includeUsage: true/);
+});
+
+test('AI SDK usage normalizes into the Copilot token payload', () => {
+	const normalized = usage.normalizeUsage({
+		inputTokens: 128,
+		outputTokens: 32,
+		totalTokens: 160,
+		inputTokenDetails: { cacheReadTokens: 64, cacheWriteTokens: 16 },
+		outputTokenDetails: { reasoningTokens: 8 },
+		raw: { model: 'big-pickle' },
+	});
+	assert.deepEqual(normalized, {
+		promptTokens: 128,
+		completionTokens: 32,
+		totalTokens: 160,
+		cachedTokens: 64,
+		cacheWriteTokens: 16,
+		reasoningTokens: 8,
+	});
+	assert.deepEqual(usage.toCopilotUsage(normalized), {
+		prompt_tokens: 128,
+		completion_tokens: 32,
+		total_tokens: 160,
+		prompt_tokens_details: { cached_tokens: 64, cache_creation_input_tokens: 16 },
+		completion_tokens_details: { reasoning_tokens: 8 },
+	});
+	assert.equal(usage.VSCODE_USAGE_MIME_TYPE, 'usage');
+});
+
+test('raw provider usage is normalized and negative sentinels are clamped', () => {
+	const normalized = usage.normalizeUsage({
+		raw: {
+			prompt_tokens: -1,
+			completion_tokens: 5,
+			prompt_tokens_details: { cached_tokens: -8 },
+		},
+	});
+	assert.deepEqual(normalized, {
+		promptTokens: 0,
+		completionTokens: 5,
+		totalTokens: 5,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+		reasoningTokens: 0,
+	});
+	assert.deepEqual(usage.toCopilotUsage(normalized), {
+		prompt_tokens: 0,
+		completion_tokens: 5,
+		total_tokens: 5,
+		prompt_tokens_details: { cached_tokens: 0 },
+	});
+	assert.equal(usage.normalizeUsage(undefined), undefined);
 });
 
 test('discovered routes prefer the Go lane and map to official SDK packages', () => {
@@ -667,6 +722,9 @@ test('provider keeps CLI shaping and routes the shaped fetch through our transpo
 	assert.match(source, /projectId\(projectForWorkdir\(requestMeta\.workdir\)\)/);
 	assert.match(source, /shapeBody: providerInfo\?\.npm === '@ai-sdk\/openai-compatible'/);
 	assert.match(source, /getGatewayCredential/);
+	assert.match(source, /new vscode\.LanguageModelDataPart\(/);
+	assert.match(source, /VSCODE_USAGE_MIME_TYPE/);
+	assert.match(source, /toCopilotUsage\(snapshot\)/);
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
 	assert.match(extension, /registerCommand\('opencodeZen\.selfTestOnce'/);
 	assert.match(extension, /if \(singleRequest\) \{[\s\S]*stopped after one inference request/);
