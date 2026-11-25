@@ -119,7 +119,7 @@ export class ToolRenames {
 		if (exact !== undefined) {
 			return exact;
 		}
-		const bound = this.official.get(wire);
+		const bound = this.official.get(wire) ?? this.official.get(wire.toLowerCase());
 		if (bound !== undefined) {
 			return bound;
 		}
@@ -151,32 +151,35 @@ export function officialToolCandidates(name: string): readonly string[] {
 	switch (name.toLowerCase()) {
 		case 'bash':
 		case 'shell':
-			return ['Bash'];
+			return ['Bash', 'run_in_terminal', 'execute_command'];
 		case 'edit':
-			return ['Edit'];
+			return [
+				'Edit', 'replace_string_in_file', 'multi_replace_string_in_file',
+				'insert_edit_into_file', 'edit_file', 'str_replace_editor',
+			];
 		case 'glob':
-			return ['Glob'];
+			return ['Glob', 'list_dir', 'file_search'];
 		case 'grep':
-			return ['Grep'];
+			return ['Grep', 'grep_search', 'find_text_in_files', 'codebase_search'];
 		case 'question':
 			return ['AskUserQuestion'];
 		case 'read':
-			return ['Read'];
+			return ['Read', 'read_file', 'view_file'];
 		case 'skill':
 			return ['Skill'];
 		case 'subagent':
 		case 'task':
-			return ['Agent', 'Task', 'Subagent'];
+			return ['Agent', 'Task', 'Subagent', 'runSubagent'];
 		case 'todowrite':
-			return ['TodoWrite'];
+			return ['TodoWrite', 'manage_todo_list'];
 		case 'webfetch':
-			return ['WebFetch'];
+			return ['WebFetch', 'fetch_webpage'];
 		case 'websearch':
-			return ['WebSearch'];
+			return ['WebSearch', 'search_web'];
 		case 'write':
-			return ['Write'];
+			return ['Write', 'create_file', 'write_file'];
 		case 'patch':
-			return ['Patch'];
+			return ['Patch', 'apply_patch', 'apply_patch_tool'];
 		default:
 			return [];
 	}

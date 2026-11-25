@@ -309,6 +309,40 @@ test('request renames bind official tool aliases', () => {
 	assert.equal(renames.resolve('read'), 'Read');
 });
 
+test('official edit resolves to the Copilot inline edit tool with candidate priority', () => {
+	const renames = shaping.buildToolRenames(['replace_string_in_file']);
+	const alias = shaping.clientToolWireName('replace_string_in_file');
+	assert.equal(renames.resolve('edit'), 'replace_string_in_file');
+	assert.equal(renames.resolve('Edit'), 'replace_string_in_file');
+	assert.equal(renames.resolve(alias), 'replace_string_in_file');
+
+	const multiple = shaping.buildToolRenames(['insert_edit_into_file', 'replace_string_in_file']);
+	assert.equal(multiple.resolve('edit'), 'replace_string_in_file');
+
+	const { body } = shaping.shapeChatBody({
+		model: 'big-pickle',
+		messages: [
+			{
+				role: 'assistant',
+				tool_calls: [{ id: 'call_edit', function: { name: 'edit', arguments: '{}' } }],
+			},
+			{ role: 'tool', tool_call_id: 'call_edit', content: 'ok' },
+		],
+		tools: [{
+			type: 'function',
+			function: { name: 'replace_string_in_file', description: 'Replace', parameters: { type: 'object' } },
+		}],
+	}, {
+		sessionId: 'ses_0123456789abcABCDEFGHIJKLMN',
+		projectId: 'a'.repeat(40),
+		modelId: 'big-pickle',
+		workdir: '/workspace',
+	});
+	assert.equal(body.tools.length, 14);
+	assert.equal(body.messages[1].tool_calls[0].function.name, alias);
+	assert.equal(body.messages[2].tool_call_id, 'call_edit');
+});
+
 test('unknown tool history is dropped with its result and known history is rewritten', () => {
 	const { body: shaped, aliases } = shaping.shapeChatBody({
 		model: 'claude-sonnet-4-5',

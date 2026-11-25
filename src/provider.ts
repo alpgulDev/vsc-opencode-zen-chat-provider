@@ -207,6 +207,10 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 					},
 					onToolCall: ({ toolCallId, toolName, input }) => {
 						toolCalls++;
+						const argumentKeys = input && typeof input === 'object' ? Object.keys(input).join(', ') : '';
+						getOutputChannel().info(
+							`Tool call ${requestDiagnostics.id}: ${toolName} [${argumentKeys || 'no args'}]`
+						);
 						progress.report(new vscode.LanguageModelToolCallPart(toolCallId, toolName, input));
 					},
 					onUsage: (snapshot) => {

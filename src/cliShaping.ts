@@ -500,20 +500,18 @@ export function bindOfficialAliases(
 	declaredNames: readonly string[],
 	officialNames: readonly string[]
 ): void {
+	const declared = new Set(declaredNames);
 	for (const official of officialNames) {
-		for (const declared of declaredNames) {
-			if (renames.wire(declared) === undefined) {
+		if (renames.officialClient(official) !== undefined) {
+			continue;
+		}
+		for (const candidate of officialToolCandidates(official)) {
+			const client = renames.resolve(candidate);
+			if (!declared.has(client)) {
 				continue;
 			}
-			for (const candidate of officialToolCandidates(official)) {
-				if (renames.resolve(candidate) === declared) {
-					renames.bindOfficial(official, declared);
-					break;
-				}
-			}
-			if (renames.officialClient(official) !== undefined) {
-				break;
-			}
+			renames.bindOfficial(official, client);
+			break;
 		}
 	}
 }
