@@ -38,20 +38,19 @@ vsce package
 
 1. Open this folder in VS Code
 2. Press `F5` (Run → Start Debugging)
-3. Run **OpenCode Zen: Add Models**, add an **OpenCode Zen** group, then pick the authentication method in the group settings.
+3. In **+ Add Models**, choose **OpenCode Zen**. The extension asks for authentication and lane, then registers models only after setup succeeds.
 
 ## Commands
 
 Open the command palette (`Ctrl/Cmd+Shift+P`):
 
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
-  - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
-  - In the group settings, choose `authMethod`:
-    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required. Selecting OAuth triggers a fresh device sign-in once, even if an older credential exists.
-    - `apiKey` prompts the extension for a key (password-masked, empty values rejected) and stores it in **SecretStorage**. VS Code does not ask for a group `apiKey` itself.
-    - `signOut` clears the stored OAuth credential and API key; selecting `oauth` again forces another fresh device sign-in.
-  - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
-  - The command offers to enable `chat.agentHost.byokModels.enabled` if it is off.
+  - Opens the Language Models editor. **+ Add Models → OpenCode Zen** runs the extension-owned setup wizard.
+  - Pick `OAuth`, `API Key`, `Anonymous`, or `Sign Out`, then pick `auto` / `zen` / `go`.
+  - `OAuth` starts device sign-in and waits for completion (or a timeout/failure error with Retry).
+  - `API Key` uses a password-masked prompt that rejects empty input and stores the key in **SecretStorage**.
+  - Models are registered only after the chosen auth flow succeeds; on failure an error with **Retry** is shown and no models are exposed.
+  - Existing VS Code Add Models groups with `authMethod` / `lane` settings are still honored.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
   - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes the registered vendors.
 - `OpenCode Zen: Revert Agents Window Support` (`opencodeZen.revertAgentsWindowSupport`)
@@ -59,7 +58,7 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Restart Bun-Compatible Transport` (`opencodeZen.restartTransport`)
   - Restarts the extension-owned transport helper.
 
-Sign-in, sign-out and self-test commands were removed; authentication is managed entirely from the Add Models group.
+Standalone sign-in, sign-out and self-test commands were removed; authentication is managed entirely from the Add Models setup flow.
 
 ## Notes
 
@@ -68,7 +67,8 @@ Sign-in, sign-out and self-test commands were removed; authentication is managed
 - On activation the extension also enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
-- With `authMethod: oauth`, device credentials are stored in **SecretStorage**. With no signed-in credential and no group, requests fall back to `Bearer public` (matching the OpenCode CLI anonymous lane). The Add Models `apiKey` property is intentionally not promptable; API keys are entered through the extension's own secure prompt.
-- VS Code saves the Add Models group before calling the provider, so the group entry itself appears immediately. The extension deliberately exposes no models for that vendor until OAuth/API key setup finishes; configured groups also hide anonymous ungrouped models in both the Chat and Agents pickers.
+- OAuth credentials and API keys are stored in **SecretStorage**. `Anonymous` explicitly uses the public `Bearer public` lane.
+- The provider contribution declares `managementCommand`, so VS Code's **Add Models** action resolves models with `silent: false` instead of immediately creating a group. The extension uses that signal to run auth and lane selection first; no models are exposed until it succeeds. On failure an error notification with **Retry** is shown.
+- Existing VS Code provider groups created by earlier builds remain supported via their `authMethod` / `lane` configuration.
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).

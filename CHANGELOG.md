@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop VS Code's Add Models form from prompting for `apiKey` even when OAuth is selected. The property is no longer promptable; API keys are collected through a password-masked extension prompt that rejects empty input.
 - Start a fresh device sign-in when an OAuth group is selected, instead of silently reusing a stored credential. Repeat resolutions reuse the in-flight/finished sign-in.
 - Hide ungrouped models for both Chat and Agents vendors while a BYOK group is configured, so anonymous models do not appear before the group's OAuth/API key setup completes.
+- Use the provider `managementCommand` hook so **Add Models** runs an extension-owned auth/lane wizard before any models are registered. OAuth failure or timeout now shows an error with Retry instead of silently exposing models.
 
 ## [0.1.3] - 2026-01-27
 
