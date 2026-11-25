@@ -63,7 +63,8 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 ## Notes
 
 - Models are registered as BYOK models for the main Chat picker and through an `opencode-agent` variant (`targetChatSessionType: copilotcli`) for the Agents window / Copilot harness.
-- On activation the extension enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
+- The manifest declares `capabilities.agentsWindow.supported: true`, so VS Code loads the extension in the Agents window process and its `opencode` vendor appears in **+ Add Models** there.
+- On activation the extension also enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
 - Without sign-in, requests use `Bearer public` (matching the OpenCode CLI anonymous lane).

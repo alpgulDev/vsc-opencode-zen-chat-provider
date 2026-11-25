@@ -779,6 +779,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	const agent = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode-agent');
 	assert.equal(agent?.displayName, 'OpenCode Zen (Agents)');
 	assert.match(agent.when, /showAgentModelsInManagePanel/);
+	assert.equal(pkg.capabilities?.agentsWindow?.supported, true);
 	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode'), true);
 	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode-agent'), true);
 	assert.equal(pkg.contributes.configuration.properties['opencodeZen.agentsWindow'].default, true);

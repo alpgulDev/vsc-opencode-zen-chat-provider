@@ -28,6 +28,11 @@
   ],
   "icon": "assets/icon.png",
   "main": "./out/extension.js",
+  "capabilities": {
+    "agentsWindow": {
+      "supported": true
+    }
+  },
   "activationEvents": [
     "onStartupFinished",
     "onCommand:opencodeZen.signIn",
