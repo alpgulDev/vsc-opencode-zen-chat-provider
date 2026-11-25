@@ -38,7 +38,7 @@ vsce package
 
 1. Open this folder in VS Code
 2. Press `F5` (Run → Start Debugging)
-3. In the Extension Development Host, run **OpenCode Zen: Add Models** and add an **OpenCode Zen** group. Models are only exposed through groups added this way.
+3. In the Extension Development Host models appear in both the normal Chat picker and the Agents window / Copilot harness. Sign in with **OpenCode Zen: Sign In** for authenticated access (anonymous `Bearer public` fallback is used otherwise). Optionally run **OpenCode Zen: Add Models** to create a BYOK group.
 
 ## Commands
 
@@ -49,17 +49,21 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Sign Out` (`opencodeZen.signOut`)
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
   - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
+  - The group's `apiKey` is stored by VS Code as a secret; it overrides the signed-in token when present.
   - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
-  - To use the group in the Agents window / Copilot harness, keep `chat.agentHost.byokModels.enabled` enabled; the command offers to enable it if it is off.
+  - The command offers to enable `chat.agentHost.byokModels.enabled` if it is off.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
-  - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes all configured groups.
+  - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes the registered vendors.
+- `OpenCode Zen: Revert Agents Window Support` (`opencodeZen.revertAgentsWindowSupport`)
+  - Restores the VS Code settings the extension auto-enabled for the Agents window.
 - `OpenCode Zen: Self Test` (`opencodeZen.selfTest`)
   - Prompts for a model, then runs a small tool-calling roundtrip.
   - Output is written to the **OpenCode Zen** Output Channel.
 
 ## Notes
 
-- Models are registered only through **Add Models** groups so they are treated as BYOK models by VS Code and appear in the Agents window / Copilot harness as well as the main Chat picker.
+- Models are registered as BYOK models for the main Chat picker and through an `opencode-agent` variant (`targetChatSessionType: copilotcli`) for the Agents window / Copilot harness.
+- On activation the extension enables `extensions.supportAgentsWindow.<extension-id>`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and pins `sessions.chat.experimental.agentsPickerInAttachContextMenu` off. The revert command restores only the settings this extension changed.
 - Tool calling is supported by streaming `LanguageModelToolCallPart` from the provider.
 - Tool execution is handled by the caller (VS Code) by sending back `LanguageModelToolResultPart` on the next request.
 - Without sign-in, requests use `Bearer public` (matching the OpenCode CLI anonymous lane).

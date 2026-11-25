@@ -769,23 +769,41 @@ test('provider keeps CLI shaping and routes the shaped fetch through our transpo
 	assert.match(manager, /server\.listen\(0, '127\.0\.0\.1'/);
 });
 
-test('models are exposed only through Add Models groups', () => {
+test('models are registered for local Chat and Copilot Agents windows', () => {
 	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-	const providerEntry = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
-	assert.equal(providerEntry?.displayName, 'OpenCode Zen');
-	assert.deepEqual(providerEntry.configuration.properties.lane.enum, ['auto', 'zen', 'go']);
-	assert.equal(providerEntry.configuration.properties.lane.default, 'auto');
-	assert.equal(pkg.activationEvents.includes('onCommand:opencodeZen.addModels'), true);
+	const base = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
+	assert.equal(base?.displayName, 'OpenCode Zen');
+	assert.equal(base.configuration.properties.apiKey.secret, true);
+	assert.deepEqual(base.configuration.properties.lane.enum, ['auto', 'zen', 'go']);
+	assert.equal(base.configuration.properties.lane.default, 'auto');
+	const agent = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode-agent');
+	assert.equal(agent?.displayName, 'OpenCode Zen (Agents)');
+	assert.match(agent.when, /showAgentModelsInManagePanel/);
+	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode'), true);
+	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode-agent'), true);
+	assert.equal(pkg.contributes.configuration.properties['opencodeZen.agentsWindow'].default, true);
+	assert.equal(pkg.contributes.configuration.properties['opencodeZen.autoEnableAgentsWindow'].default, true);
 	assert.equal(pkg.contributes.commands.some((command) => command.command === 'opencodeZen.addModels'), true);
+	assert.equal(pkg.contributes.commands.some((command) => command.command === 'opencodeZen.revertAgentsWindowSupport'), true);
 
 	const source = readFileSync(join(root, 'src', 'provider.ts'), 'utf8');
-	assert.match(source, /const configuration = options\.configuration;/);
-	assert.match(source, /if \(!configuration\) \{[\s\S]*?return \[\];/);
+	assert.match(source, /AGENT_VENDOR_ID = 'opencode-agent'/);
+	assert.match(source, /targetChatSessionType: AGENT_SESSION_TYPE/);
+	assert.match(source, /isBYOK: true/);
+	assert.match(source, /hasByokGroupConfigured/);
 	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
-	assert.match(source, /model\.id\.endsWith\('-go'\)/);
+	assert.match(source, /storeByokApiKey\(this\.context\.secrets, configuredKey\)/);
 
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+	assert.match(extension, /registerLanguageModelChatProvider\(AGENT_VENDOR_ID, agentProvider\)/);
+	assert.match(extension, /ensureAgentsWindowSupport\(context\)/);
+	assert.match(extension, /revertAgentsWindowSupport\(context, true\)/);
 	assert.match(extension, /registerCommand\('opencodeZen\.addModels'/);
 	assert.match(extension, /workbench\.action\.chat\.manage/);
 	assert.match(extension, /chat\.agentHost\.byokModels\.enabled/);
+
+	const agentsWindow = readFileSync(join(root, 'src', 'agentsWindow.ts'), 'utf8');
+	assert.match(agentsWindow, /supportAgentsWindow/);
+	assert.match(agentsWindow, /byokModels\.enabled/);
+	assert.match(agentsWindow, /agentsPickerInAttachContextMenu/);
 });

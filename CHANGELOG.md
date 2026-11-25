@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Expose OpenCode Zen models only through **Add Models** groups, so VS Code registers them as BYOK models in the Agents window / Copilot harness.
-- Added an `OpenCode Zen: Add Models` command that opens the Language Models editor and offers to enable `chat.agentHost.byokModels.enabled`.
-- Added an optional group `lane` setting (`auto`, `zen`, `go`) to filter exposed models.
+- Register OpenCode Zen models in both the normal Chat picker and the Agents window / Copilot harness: base `opencode` BYOK models plus an `opencode-agent` variant with `targetChatSessionType: copilotcli`.
+- Auto-enable `extensions.supportAgentsWindow`, `chat.agentHost.byokModels.enabled` (VS Code 1.129+), and keep the Agents picker visible; added `OpenCode Zen: Revert Agents Window Support` to undo only the changes this extension made.
+- Kept `OpenCode Zen: Add Models` with an optional secret `apiKey` and `lane` (`auto`, `zen`, `go`) group setting; a group key overrides the signed-in token.
 
 ## [0.1.3] - 2026-01-27
 
