@@ -800,6 +800,9 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /ensureGroupAuth\(/);
 	assert.doesNotMatch(source, /configuration\.authMethod === undefined && configuration\.apiKey === undefined/);
 	assert.match(source, /group resolved: authMethod=/);
+	assert.match(source, /freshOAuthSelection/);
+	assert.match(source, /OAuth group selected; starting device sign-in/);
+	assert.match(source, /let oauthPromptInFlight/);
 	assert.match(source, /configuredApiKey\(configuration\) \? 'apiKey' : 'oauth'/);
 	assert.match(source, /getOAuthInferenceAuth\(this\.context\.secrets\)/);
 	assert.match(source, /OAuth credential already present; skipping device sign-in/);

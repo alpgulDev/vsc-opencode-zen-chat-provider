@@ -31,6 +31,8 @@ const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
 
 let apiKeyPromptInFlight: Promise<string | undefined> | undefined;
 let apiKeyPromptAttempted = false;
+let oauthPromptInFlight: Promise<void> | undefined;
+let lastGroupAuthMethod: AuthMethod | undefined;
 
 type AuthMethod = 'oauth' | 'apiKey' | 'signOut';
 
@@ -84,8 +86,6 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
 	private readonly apiKeysByModelId = new Map<string, string>();
 	private readonly byokGroupStateKey: string;
-	private oauthPromptInFlight: Promise<void> | undefined;
-	private lastGroupAuthMethod: AuthMethod | undefined;
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
 	constructor(
@@ -172,24 +172,52 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		return apiKeyPromptInFlight;
 	}
 
+	private async startOAuthSignIn(token: vscode.CancellationToken): Promise<void> {
+		await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, true);
+		if (!oauthPromptInFlight) {
+			const controller = new AbortController();
+			const subscription = token.onCancellationRequested(() => controller.abort());
+			const tracked = (async () => {
+				try {
+					await signIn(this.context.secrets, controller.signal);
+					getOutputChannel().info('OpenCode Zen OAuth sign-in completed from the Add Models group.');
+					this.onDidChangeEmitter.fire();
+				} catch (err) {
+					if (!controller.signal.aborted) {
+						const message = err instanceof Error ? err.message : String(err);
+						getOutputChannel().error(`OpenCode Zen OAuth sign-in failed: ${message}`);
+					}
+				}
+			})().finally(() => {
+				subscription.dispose();
+				if (oauthPromptInFlight === tracked) {
+					oauthPromptInFlight = undefined;
+				}
+			});
+			oauthPromptInFlight = tracked;
+		}
+		await oauthPromptInFlight;
+	}
+
 	private async ensureGroupAuth(
 		authMethod: AuthMethod,
 		apiKey: string | undefined,
 		token: vscode.CancellationToken
 	): Promise<InferenceAuth | undefined> {
 		if (authMethod === 'signOut') {
-			if (this.lastGroupAuthMethod !== 'signOut') {
+			if (lastGroupAuthMethod !== 'signOut') {
 				await clearCredential(this.context.secrets);
 				await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
 				apiKeyPromptAttempted = false;
 				getOutputChannel().info('OpenCode Zen signed out from the Add Models group.');
-				this.lastGroupAuthMethod = 'signOut';
+				lastGroupAuthMethod = 'signOut';
 			}
 			this.onDidChangeEmitter.fire();
 			return undefined;
 		}
 
-		this.lastGroupAuthMethod = authMethod;
+		const freshOAuthSelection = authMethod === 'oauth' && lastGroupAuthMethod !== 'oauth';
+		lastGroupAuthMethod = authMethod;
 
 		if (authMethod === 'apiKey') {
 			const stored = apiKey ?? (await getByokApiKey(this.context.secrets));
@@ -213,6 +241,18 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 		await clearByokApiKey(this.context.secrets);
 		apiKeyPromptAttempted = false;
+
+		if (oauthPromptInFlight) {
+			await oauthPromptInFlight;
+			return getOAuthInferenceAuth(this.context.secrets);
+		}
+
+		if (freshOAuthSelection) {
+			getOutputChannel().info('OpenCode Zen OAuth group selected; starting device sign-in.');
+			await this.startOAuthSignIn(token);
+			return getOAuthInferenceAuth(this.context.secrets);
+		}
+
 		const existing = await getOAuthInferenceAuth(this.context.secrets);
 		if (existing) {
 			getOutputChannel().info('OpenCode Zen OAuth credential already present; skipping device sign-in.');
@@ -221,27 +261,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		if (this.context.globalState.get<boolean>(OAUTH_PROMPTED_STATE_KEY, false)) {
 			return undefined;
 		}
-		if (!this.oauthPromptInFlight) {
-			await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, true);
-			const controller = new AbortController();
-			const subscription = token.onCancellationRequested(() => controller.abort());
-			this.oauthPromptInFlight = (async () => {
-				try {
-					await signIn(this.context.secrets, controller.signal);
-					getOutputChannel().info('OpenCode Zen OAuth sign-in completed from the Add Models group.');
-					this.onDidChangeEmitter.fire();
-				} catch (err) {
-					if (!controller.signal.aborted) {
-						const message = err instanceof Error ? err.message : String(err);
-						getOutputChannel().error(`OpenCode Zen OAuth sign-in failed: ${message}`);
-					}
-				}
-			})().finally(() => {
-				subscription.dispose();
-				this.oauthPromptInFlight = undefined;
-			});
-		}
-		await this.oauthPromptInFlight;
+		await this.startOAuthSignIn(token);
 		return getOAuthInferenceAuth(this.context.secrets);
 	}
 
