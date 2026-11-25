@@ -307,7 +307,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 					return [];
 				}
 			} else {
-				if (!this.agentVariant && this.hasByokGroupConfigured()) {
+				if (this.hasByokGroupConfigured()) {
 					return [];
 				}
 				auth = await getInferenceAuth(this.context.secrets);

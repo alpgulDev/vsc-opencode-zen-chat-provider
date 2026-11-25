@@ -796,6 +796,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /targetChatSessionType: AGENT_SESSION_TYPE/);
 	assert.match(source, /isBYOK: true/);
 	assert.match(source, /hasByokGroupConfigured/);
+	assert.doesNotMatch(source, /!this\.agentVariant && this\.hasByokGroupConfigured\(\)/);
 	assert.match(source, /modelsForLane\(models, configuration\.lane \?\? 'auto'\)/);
 	assert.match(source, /ensureGroupAuth\(/);
 	assert.doesNotMatch(source, /configuration\.authMethod === undefined && configuration\.apiKey === undefined/);
