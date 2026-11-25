@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
+import { ensureAgentsWindowSupport, isAgentsWindowEnabled, isAutoEnableEnabled, revertAgentsWindowSupport } from './agentsWindow';
 import { ZenTransportManager } from './zenTransport';
 import { clearCredential, signIn } from './oauth';
 import { getOutputChannel } from './output';
-import { OpenCodeZenChatProvider, VENDOR_ID } from './provider';
+import { AGENT_VENDOR_ID, OpenCodeZenChatProvider, VENDOR_ID } from './provider';
 
 const SELF_TEST_TOOL_NAME = 'opencodeZen.selfTest.getTime';
 let activeTransport: ZenTransportManager | undefined;
@@ -12,6 +13,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const transport = new ZenTransportManager(context);
 	activeTransport = transport;
 	const provider = new OpenCodeZenChatProvider(context, transport);
+	const agentProvider = new OpenCodeZenChatProvider(context, transport, true);
 
 	const selfTest = async (singleRequest: boolean): Promise<void> => {
 		if (!vscode.lm?.selectChatModels) {
@@ -77,7 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const addModels = async (): Promise<void> => {
 		await vscode.commands.executeCommand('workbench.action.chat.manage');
 		const byokEnabled = vscode.workspace.getConfiguration().get<boolean>('chat.agentHost.byokModels.enabled');
-		if (byokEnabled === false) {
+		if (byokEnabled !== true) {
 			const enable = await vscode.window.showWarningMessage(
 				'OpenCode Zen models require BYOK models in the Agents window.',
 				'Enable'
@@ -125,6 +127,12 @@ export function activate(context: vscode.ExtensionContext) {
 			await provider.refreshModels(true);
 			vscode.window.showInformationMessage('OpenCode Zen model list refreshed.');
 		}),
+		vscode.commands.registerCommand('opencodeZen.revertAgentsWindowSupport', async () => {
+			await revertAgentsWindowSupport(context, true);
+			vscode.window.showInformationMessage(
+				'OpenCode Zen reverted the Agents window settings. Reload the window for the change to take effect.'
+			);
+		}),
 		vscode.commands.registerCommand('opencodeZen.restartTransport', async () => {
 			const endpoint = await transport.restart();
 			if (endpoint) {
@@ -149,12 +157,46 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider));
+		if (isAgentsWindowEnabled()) {
+			context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(AGENT_VENDOR_ID, agentProvider));
+		}
+
+		context.subscriptions.push(
+			vscode.workspace.onDidChangeConfiguration((event) => {
+				if (
+					event.affectsConfiguration('opencodeZen.agentsWindow') ||
+					event.affectsConfiguration('opencodeZen.autoEnableAgentsWindow')
+				) {
+					if (isAgentsWindowEnabled() && isAutoEnableEnabled()) {
+						void ensureAgentsWindowSupport(context);
+					} else {
+						void revertAgentsWindowSupport(context);
+					}
+				}
+			})
+		);
+
+		if (isAgentsWindowEnabled() && isAutoEnableEnabled()) {
+			void ensureAgentsWindowSupport(context);
+		}
+		void warmModelPickerMetadata();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		output.error(`OpenCode Zen activation failed: ${message}`);
 		vscode.window.showWarningMessage('OpenCode Zen failed to activate. Check the OpenCode Zen output channel for details.');
 		console.error(err);
 	}
+}
+
+async function warmModelPickerMetadata(): Promise<void> {
+	if (!vscode.lm?.selectChatModels) {
+		return;
+	}
+	const vendors = [VENDOR_ID];
+	if (isAgentsWindowEnabled()) {
+		vendors.push(AGENT_VENDOR_ID);
+	}
+	await Promise.allSettled(vendors.map((vendor) => vscode.lm.selectChatModels({ vendor })));
 }
 
 interface SelfTestContext {

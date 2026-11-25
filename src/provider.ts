@@ -4,17 +4,33 @@ import { buildCliHeaders, buildToolRenames, clientToolWireName, projectForWorkdi
 import { GatewayRouteResolver, providerBaseUrl, sdkPackageForProtocol, type ResolvedGatewayRoute } from './gatewayRoutes';
 import type { ZenTransportManager } from './zenTransport';
 import { isCanonicalSessionId, messageId, sessionId } from './identity';
-import { getGatewayCredential, getInferenceAuth } from './oauth';
+import { getGatewayCredential, getInferenceAuth, storeByokApiKey, type InferenceAuth } from './oauth';
 import { ModelRegistry } from './modelRegistry';
 import { OPENAI_COMPAT_PROVIDER_NAME, streamZen } from './zenClient';
 import { getOutputChannel } from './output';
 import { toCopilotUsage, VSCODE_USAGE_MIME_TYPE, type ZenUsage } from './usage';
 
 export const VENDOR_ID = 'opencode';
+export const AGENT_VENDOR_ID = 'opencode-agent';
+
+const AGENT_MODEL_SUFFIX = '::agent-host';
+const AGENT_SESSION_TYPE = 'copilotcli';
+
+const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
-	readonly configuration?: { readonly lane?: string };
+	readonly configuration?: { readonly apiKey?: string; readonly lane?: string };
 };
+
+type ResponseOptionsWithConfig = vscode.ProvideLanguageModelChatResponseOptions & {
+	readonly modelConfiguration?: Record<string, unknown>;
+	readonly configuration?: Record<string, unknown>;
+};
+
+function configuredApiKey(configuration: Record<string, unknown> | undefined): string | undefined {
+	const value = configuration?.apiKey;
+	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
 
 export function modelsForLane(
 	models: readonly vscode.LanguageModelChatInformation[],
@@ -29,14 +45,24 @@ export function modelsForLane(
 	return [...models];
 }
 
+export function rawModelId(modelId: string): string {
+	return modelId.endsWith(AGENT_MODEL_SUFFIX) ? modelId.slice(0, -AGENT_MODEL_SUFFIX.length) : modelId;
+}
+
 export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider {
 	private readonly registry: ModelRegistry;
 	private readonly routeResolver: GatewayRouteResolver;
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
-	private loggedMissingGroup = false;
+	private readonly apiKeysByModelId = new Map<string, string>();
+	private readonly byokGroupStateKey: string;
 	readonly onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
-	constructor(private readonly context: vscode.ExtensionContext, private readonly transport?: ZenTransportManager) {
+	constructor(
+		private readonly context: vscode.ExtensionContext,
+		private readonly transport?: ZenTransportManager,
+		private readonly agentVariant = false
+	) {
+		this.byokGroupStateKey = `${BYOK_GROUP_STATE_PREFIX}${this.agentVariant ? AGENT_VENDOR_ID : VENDOR_ID}`;
 		this.registry = new ModelRegistry(context);
 		this.registry.onDidChange(() => this.onDidChangeEmitter.fire());
 		this.routeResolver = new GatewayRouteResolver(
@@ -83,24 +109,77 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		}
 	}
 
+	private hasByokGroupConfigured(): boolean {
+		return this.context.globalState.get<boolean>(this.byokGroupStateKey, false);
+	}
+
+	private async markByokGroupConfigured(): Promise<void> {
+		await this.context.globalState.update(this.byokGroupStateKey, true);
+	}
+
+	private rememberApiKey(modelId: string, apiKey: string): void {
+		this.apiKeysByModelId.set(modelId, apiKey);
+		const rawId = rawModelId(modelId);
+		if (rawId !== modelId) {
+			this.apiKeysByModelId.set(rawId, apiKey);
+		}
+	}
+
+	private async resolveRequestAuth(
+		options: ResponseOptionsWithConfig,
+		modelId: string
+	): Promise<InferenceAuth> {
+		const configured = configuredApiKey(options.modelConfiguration) ?? configuredApiKey(options.configuration);
+		if (configured) {
+			return { apiKey: configured };
+		}
+		const remembered = this.apiKeysByModelId.get(modelId) ?? this.apiKeysByModelId.get(rawModelId(modelId));
+		if (remembered) {
+			return { apiKey: remembered };
+		}
+		return getInferenceAuth(this.context.secrets);
+	}
+
 	async provideLanguageModelChatInformation(
 		options: GroupedModelOptions,
 		_token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]> {
 		void _token;
-		const configuration = options.configuration;
-		if (!configuration) {
-			if (!this.loggedMissingGroup) {
-				this.loggedMissingGroup = true;
-				getOutputChannel().info('No OpenCode Zen model group is configured. Run "OpenCode Zen: Add Models" to add one.');
-			}
-			return [];
-		}
 		try {
-			const auth = await getInferenceAuth(this.context.secrets);
+			const configuration = options.configuration;
+			const configuredKey = configuredApiKey(configuration);
+
+			if (configuredKey) {
+				await this.markByokGroupConfigured();
+				await storeByokApiKey(this.context.secrets, configuredKey);
+			} else if (configuration !== undefined || (!this.agentVariant && this.hasByokGroupConfigured())) {
+				return [];
+			}
+
+			const auth = configuredKey ? { apiKey: configuredKey } : await getInferenceAuth(this.context.secrets);
 			const models = await this.registry.getModels({ anonymous: auth.apiKey === 'public' });
 			await this.refreshRoutes(false);
-			return modelsForLane(models, configuration.lane ?? 'auto');
+
+			if (this.agentVariant) {
+				return models.map((model) => {
+					const id = `${model.id}${AGENT_MODEL_SUFFIX}`;
+					this.rememberApiKey(id, auth.apiKey);
+					return {
+						...model,
+						id,
+						name: `${model.name} (Agents)`,
+						isBYOK: true,
+						isUserSelectable: true,
+						targetChatSessionType: AGENT_SESSION_TYPE,
+					};
+				});
+			}
+
+			const visible = configuration ? modelsForLane(models, configuration.lane ?? 'auto') : models;
+			return visible.map((model) => {
+				this.rememberApiKey(model.id, auth.apiKey);
+				return { ...model, isBYOK: true, isUserSelectable: true };
+			});
 		} catch (err) {
 			// If model metadata fetch fails, surface no models rather than throwing.
 			getOutputChannel().error(`Model discovery failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -111,20 +190,21 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 	async provideLanguageModelChatResponse(
 		model: vscode.LanguageModelChatInformation,
 		messages: readonly vscode.LanguageModelChatRequestMessage[],
-		options: vscode.ProvideLanguageModelChatResponseOptions,
+		options: ResponseOptionsWithConfig,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
 		const transportEndpoint = await this.transport?.getEndpoint();
-		const auth = await getInferenceAuth(this.context.secrets);
+		const auth = await this.resolveRequestAuth(options, model.id);
 
 		const abortController = new AbortController();
 		token.onCancellationRequested(() => abortController.abort());
 		const requestDiagnostics = startRequestDiagnostics(model, options, messages);
 
+		const rawId = rawModelId(model.id);
 		const toolMode = options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto';
-		const route = await this.resolveRoute(model.id);
-		const metadata = await this.registry.getModelProviderInfo(model.id);
+		const route = await this.resolveRoute(rawId);
+		const metadata = await this.registry.getModelProviderInfo(rawId);
 		const providerInfo = route
 			? {
 				npm: sdkPackageForProtocol(route.route.protocol),
@@ -134,9 +214,9 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				originalModelId: route.route.model_id,
 			}
 			: metadata;
-		const isGoLane = route?.plan === 'go' || (!route && model.id.endsWith('-go'));
+		const isGoLane = route?.plan === 'go' || (!route && rawId.endsWith('-go'));
 		const requestToolMode = isGoLane && toolMode === 'required' ? 'auto' : toolMode;
-		const requestModelId = providerInfo?.originalModelId ?? model.id;
+		const requestModelId = providerInfo?.originalModelId ?? rawId;
 		const requestMeta = await getOrCreateRequestMetadata(this.context, options);
 		const toolNameMap = buildToolNameMap(options.tools, providerInfo?.npm);
 		const declaredToolNames = [...toolNameMap.toProvider.values()];
@@ -167,7 +247,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		if (promptCaching.enabled && anthropicCacheControl) {
 			cachedMessages = applyAnthropicCacheControl(coreMessages, anthropicCacheControl);
 		} else if (promptCaching.enabled && providerInfo?.npm === '@ai-sdk/openai-compatible') {
-			if (isGlm47ModelId(model.id)) {
+			if (isGlm47ModelId(rawId)) {
 				cachedMessages = removeOpenAICompatibleCacheControl(coreMessages);
 			} else {
 				cachedMessages = applyOpenAICompatibleCacheControl(coreMessages);
@@ -182,7 +262,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			providerInfo?.npm,
 			promptCacheKey,
 			cacheRetention,
-			model.id,
+			rawId,
 			providerInfo?.options
 		);
 		const providerOptions = baseProviderOptions;

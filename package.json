@@ -34,6 +34,9 @@
     "onCommand:opencodeZen.signOut",
     "onCommand:opencodeZen.refreshModels",
     "onCommand:opencodeZen.addModels",
+    "onCommand:opencodeZen.revertAgentsWindowSupport",
+    "onLanguageModelChatProvider:opencode",
+    "onLanguageModelChatProvider:opencode-agent",
     "onCommand:opencodeZen.restartTransport",
     "onCommand:opencodeZen.selfTest",
     "onCommand:opencodeZen.selfTestOnce"
@@ -45,7 +48,14 @@
         "displayName": "OpenCode Zen",
         "configuration": {
           "type": "object",
+          "required": ["apiKey"],
           "properties": {
+            "apiKey": {
+              "type": "string",
+              "title": "OpenCode Zen API Key",
+              "description": "Optional when signed in with OpenCode Zen: Sign In. Stored by VS Code as a secret for Add Models groups.",
+              "secret": true
+            },
             "lane": {
               "type": "string",
               "enum": ["auto", "zen", "go"],
@@ -54,6 +64,11 @@
             }
           }
         }
+      },
+      {
+        "vendor": "opencode-agent",
+        "displayName": "OpenCode Zen (Agents)",
+        "when": "config.opencodeZen.showAgentModelsInManagePanel"
       }
     ],
     "commands": [
@@ -74,6 +89,10 @@
         "title": "OpenCode Zen: Add Models"
       },
       {
+        "command": "opencodeZen.revertAgentsWindowSupport",
+        "title": "OpenCode Zen: Revert Agents Window Support"
+      },
+      {
         "command": "opencodeZen.restartTransport",
         "title": "OpenCode Zen: Restart Bun-Compatible Transport"
       },
@@ -89,6 +108,21 @@
     "configuration": {
       "title": "OpenCode Zen",
       "properties": {
+        "opencodeZen.agentsWindow": {
+          "type": "boolean",
+          "default": true,
+          "description": "Register OpenCode Zen models in the Copilot Agents window model picker."
+        },
+        "opencodeZen.autoEnableAgentsWindow": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically enable the VS Code settings required for OpenCode Zen models in the Agents window."
+        },
+        "opencodeZen.showAgentModelsInManagePanel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the OpenCode Zen (Agents) vendor in the Language Models management editor."
+        },
         "opencodeZen.modelCacheTtlMinutes": {
           "type": "number",
           "default": 60,

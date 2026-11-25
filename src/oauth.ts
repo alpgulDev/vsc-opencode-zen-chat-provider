@@ -5,6 +5,7 @@ import { getOutputChannel } from './output';
 const CONSOLE_SERVER = 'https://opencode.ai/console';
 const CLIENT_ID = 'opencode-cli';
 const SECRET_KEY = 'opencodeZen.oauthCredential';
+const BYOK_SECRET_KEY = 'opencodeZen.byokApiKey';
 const REFRESH_MARGIN_MS = 300_000;
 const CONSOLE_REQUEST_TIMEOUT_MS = 20_000;
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
@@ -62,9 +63,22 @@ export async function readCredential(secrets: vscode.SecretStorage): Promise<OAu
 
 export async function clearCredential(secrets: vscode.SecretStorage): Promise<void> {
 	await secrets.delete(SECRET_KEY);
+	await secrets.delete(BYOK_SECRET_KEY);
+}
+
+export async function storeByokApiKey(secrets: vscode.SecretStorage, apiKey: string): Promise<void> {
+	const trimmed = apiKey.trim();
+	if (trimmed) {
+		await secrets.store(BYOK_SECRET_KEY, trimmed);
+	}
 }
 
 export async function getInferenceAuth(secrets: vscode.SecretStorage): Promise<InferenceAuth> {
+	const byokKey = await secrets.get(BYOK_SECRET_KEY);
+	if (byokKey?.trim()) {
+		return { apiKey: byokKey.trim() };
+	}
+
 	const credential = await readCredential(secrets);
 	if (!credential) {
 		return { apiKey: 'public' };
