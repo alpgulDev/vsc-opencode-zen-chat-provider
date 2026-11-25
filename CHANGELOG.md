@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Treat an Add Models group with no explicit `authMethod` as OAuth. VS Code does not inject JSON schema defaults into provider group configuration, so leaving the default OAuth choice selected previously produced no sign-in.
 - Stop VS Code's Add Models form from prompting for `apiKey` even when OAuth is selected. The property is no longer promptable; API keys are collected through a password-masked extension prompt that rejects empty input.
+- Start a fresh device sign-in when an OAuth group is selected, instead of silently reusing a stored credential. Repeat resolutions reuse the in-flight/finished sign-in.
 
 ## [0.1.3] - 2026-01-27
 

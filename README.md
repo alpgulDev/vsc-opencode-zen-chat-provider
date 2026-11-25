@@ -47,9 +47,9 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
 - `OpenCode Zen: Add Models` (`opencodeZen.addModels`)
   - Opens the Language Models editor. Select **Add Models → OpenCode Zen** and choose a group name.
   - In the group settings, choose `authMethod`:
-    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required. If a device credential already exists, no browser opens because sign-in is already complete.
+    - `oauth` (default, also used when the group has no explicit auth choice) starts OpenCode Console device sign-in; no API key is required. Selecting OAuth triggers a fresh device sign-in once, even if an older credential exists.
     - `apiKey` prompts the extension for a key (password-masked, empty values rejected) and stores it in **SecretStorage**. VS Code does not ask for a group `apiKey` itself.
-    - `signOut` clears the stored OAuth credential and API key; select `oauth` again to force a fresh device sign-in.
+    - `signOut` clears the stored OAuth credential and API key; selecting `oauth` again forces another fresh device sign-in.
   - The optional `lane` setting (`auto`, `zen`, `go`) filters which models the group exposes.
   - The command offers to enable `chat.agentHost.byokModels.enabled` if it is off.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
