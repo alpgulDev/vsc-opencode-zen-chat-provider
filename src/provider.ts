@@ -7,6 +7,7 @@ import { isCanonicalSessionId, messageId, sessionId } from './identity';
 import {
 	clearByokApiKey,
 	clearCredential,
+	getByokApiKey,
 	getGatewayCredential,
 	getInferenceAuth,
 	getOAuthInferenceAuth,
@@ -27,6 +28,9 @@ const AGENT_SESSION_TYPE = 'copilotcli';
 
 const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
 const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
+
+let apiKeyPromptInFlight: Promise<string | undefined> | undefined;
+let apiKeyPromptAttempted = false;
 
 type AuthMethod = 'oauth' | 'apiKey' | 'signOut';
 
@@ -144,6 +148,30 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		await this.context.globalState.update(this.byokGroupStateKey, true);
 	}
 
+	private async promptForApiKey(): Promise<string | undefined> {
+		if (apiKeyPromptAttempted) {
+			return undefined;
+		}
+		if (!apiKeyPromptInFlight) {
+			apiKeyPromptAttempted = true;
+			apiKeyPromptInFlight = Promise.resolve(
+				vscode.window.showInputBox({
+					title: 'OpenCode Zen API Key',
+					prompt: 'Paste your OpenCode Zen API key. It is stored in SecretStorage.',
+					password: true,
+					placeHolder: 'OpenCode Zen API key',
+					ignoreFocusOut: true,
+					validateInput: (value) => (value.trim() ? undefined : 'API key cannot be empty.'),
+				})
+			)
+				.then((value) => value?.trim() || undefined)
+				.finally(() => {
+					apiKeyPromptInFlight = undefined;
+				});
+		}
+		return apiKeyPromptInFlight;
+	}
+
 	private async ensureGroupAuth(
 		authMethod: AuthMethod,
 		apiKey: string | undefined,
@@ -153,6 +181,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			if (this.lastGroupAuthMethod !== 'signOut') {
 				await clearCredential(this.context.secrets);
 				await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
+				apiKeyPromptAttempted = false;
 				getOutputChannel().info('OpenCode Zen signed out from the Add Models group.');
 				this.lastGroupAuthMethod = 'signOut';
 			}
@@ -163,18 +192,30 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		this.lastGroupAuthMethod = authMethod;
 
 		if (authMethod === 'apiKey') {
-			if (!apiKey) {
-				getOutputChannel().warn('OpenCode Zen API key group needs an apiKey. Edit the group and add one.');
+			const stored = apiKey ?? (await getByokApiKey(this.context.secrets));
+			if (stored) {
+				await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
+				await storeByokApiKey(this.context.secrets, stored);
+				return { apiKey: stored };
+			}
+			getOutputChannel().info('OpenCode Zen API key group needs a key; prompting securely.');
+			const prompted = await this.promptForApiKey();
+			if (!prompted) {
+				getOutputChannel().warn('OpenCode Zen API key entry was cancelled or empty.');
 				return undefined;
 			}
 			await this.context.globalState.update(OAUTH_PROMPTED_STATE_KEY, false);
-			await storeByokApiKey(this.context.secrets, apiKey);
-			return { apiKey };
+			await storeByokApiKey(this.context.secrets, prompted);
+			getOutputChannel().info('OpenCode Zen API key stored in SecretStorage.');
+			this.onDidChangeEmitter.fire();
+			return { apiKey: prompted };
 		}
 
 		await clearByokApiKey(this.context.secrets);
+		apiKeyPromptAttempted = false;
 		const existing = await getOAuthInferenceAuth(this.context.secrets);
 		if (existing) {
+			getOutputChannel().info('OpenCode Zen OAuth credential already present; skipping device sign-in.');
 			return existing;
 		}
 		if (this.context.globalState.get<boolean>(OAUTH_PROMPTED_STATE_KEY, false)) {

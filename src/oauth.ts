@@ -77,6 +77,11 @@ export async function clearByokApiKey(secrets: vscode.SecretStorage): Promise<vo
 	await secrets.delete(BYOK_SECRET_KEY);
 }
 
+export async function getByokApiKey(secrets: vscode.SecretStorage): Promise<string | undefined> {
+	const raw = await secrets.get(BYOK_SECRET_KEY);
+	return raw?.trim() || undefined;
+}
+
 export async function getOAuthInferenceAuth(secrets: vscode.SecretStorage): Promise<InferenceAuth | undefined> {
 	const credential = await readCredential(secrets);
 	if (!credential) {

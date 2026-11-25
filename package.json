@@ -55,16 +55,16 @@
               "enum": ["oauth", "apiKey", "signOut"],
               "enumDescriptions": [
                 "Sign in with OpenCode Console device OAuth (no API key needed).",
-                "Use an OpenCode Zen API key entered below.",
+                "Use an OpenCode Zen API key; the extension prompts securely when needed.",
                 "Sign out and clear stored credentials."
               ],
               "default": "oauth",
               "description": "How this model group authenticates to OpenCode Zen."
             },
             "apiKey": {
-              "type": "string",
+              "type": "object",
               "title": "OpenCode Zen API Key",
-              "description": "Required only when authMethod is apiKey. Stored by VS Code as a group secret.",
+              "description": "Managed by the extension when authMethod is apiKey; not prompted by Add Models. Use authMethod 'signOut' to clear it.",
               "secret": true
             },
             "lane": {

@@ -771,6 +771,7 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	const base = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
 	assert.equal(base?.displayName, 'OpenCode Zen');
 	assert.equal(base.configuration.properties.apiKey.secret, true);
+	assert.equal(base.configuration.properties.apiKey.type, 'object');
 	assert.equal(base.configuration.required, undefined);
 	assert.deepEqual(base.configuration.properties.authMethod.enum, ['oauth', 'apiKey', 'signOut']);
 	assert.equal(base.configuration.properties.authMethod.default, 'oauth');
@@ -801,8 +802,13 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(source, /group resolved: authMethod=/);
 	assert.match(source, /configuredApiKey\(configuration\) \? 'apiKey' : 'oauth'/);
 	assert.match(source, /getOAuthInferenceAuth\(this\.context\.secrets\)/);
+	assert.match(source, /OAuth credential already present; skipping device sign-in/);
 	assert.match(source, /clearCredential\(this\.context\.secrets\)/);
-	assert.match(source, /storeByokApiKey\(this\.context\.secrets, apiKey\)/);
+	assert.match(source, /getByokApiKey\(this\.context\.secrets\)/);
+	assert.match(source, /showInputBox\(\{/);
+	assert.match(source, /password: true/);
+	assert.match(source, /validateInput: \(value\) => \(value\.trim\(\) \? undefined : 'API key cannot be empty\.'\)/);
+	assert.match(source, /storeByokApiKey\(this\.context\.secrets, prompted\)/);
 
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
 	assert.match(extension, /registerLanguageModelChatProvider\(AGENT_VENDOR_ID, agentProvider\)/);
