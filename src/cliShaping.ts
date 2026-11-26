@@ -475,6 +475,28 @@ export function officialManifest(): Record<string, any>[] {
 	}));
 }
 
+export function officialToolParameters(): Record<string, unknown> {
+	const tools = getAssets().tools;
+	const parameters: Record<string, unknown> = {};
+	for (const name of OFFICIAL_TOOL_ORDER) {
+		if (tools[name] !== undefined) {
+			parameters[name] = tools[name].parameters;
+		}
+	}
+	return parameters;
+}
+
+export function officialToolDefinitions(): Readonly<Record<string, ToolDefinition>> {
+	const tools = getAssets().tools;
+	const definitions: Record<string, ToolDefinition> = {};
+	for (const name of OFFICIAL_TOOL_ORDER) {
+		if (tools[name] !== undefined) {
+			definitions[name] = tools[name];
+		}
+	}
+	return definitions;
+}
+
 export function clientToolWireName(name: string, used?: Set<string>): string {
 	const digest = createHash('sha256').update(name).digest('hex').slice(0, 12);
 	const base = `${CLIENT_TOOL_PREFIX}${digest}`;
@@ -932,7 +954,15 @@ export function shapeChatBody(
 			}
 			return copy;
 		});
-		body.tools = [...renamed, ...officialManifest()];
+		const renamedNames = new Set<string>(
+			renamed
+				.map((tool: any) => tool?.function?.name)
+				.filter((name: unknown): name is string => typeof name === 'string')
+		);
+		body.tools = [
+			...renamed,
+			...officialManifest().filter((tool) => !renamedNames.has(tool.function.name)),
+		];
 		bindOfficialAliases(renames, [...declared.keys()], OFFICIAL_TOOL_ORDER);
 	}
 

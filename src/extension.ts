@@ -39,10 +39,6 @@ export function activate(context: vscode.ExtensionContext) {
 			await provider.refreshModels(true);
 			vscode.window.showInformationMessage('OpenCode Zen model list refreshed.');
 		}),
-		vscode.commands.registerCommand('opencodeZen.managePaidModels', async () => {
-			await provider.managePaidModels();
-			await agentProvider.refreshModels(false);
-		}),
 		vscode.commands.registerCommand('opencodeZen.revertAgentsWindowSupport', async () => {
 			await revertAgentsWindowSupport(context, true);
 			vscode.window.showInformationMessage(

@@ -195,6 +195,7 @@ export async function streamZen(
 		baseURL?: string;
 		toolNameMap?: ReadonlyMap<string, string>;
 		resolveToolName?: (name: string) => string;
+		transformToolCall?: (name: string, input: unknown) => { name: string; input: object };
 		cliContext?: CliRequestContext;
 		baseFetch?: typeof fetch;
 	},
@@ -259,12 +260,14 @@ export async function streamZen(
 
 			if (part.type === 'tool-call') {
 				emitted = true;
+				const invocation = options.transformToolCall?.(part.toolName, part.input ?? {});
 				callbacks.onToolCall({
 					toolCallId: part.toolCallId,
-					toolName: options.resolveToolName?.(part.toolName)
+					toolName: invocation?.name
+						?? options.resolveToolName?.(part.toolName)
 						?? options.toolNameMap?.get(part.toolName)
 						?? part.toolName,
-					input: (part.input ?? {}) as object,
+					input: invocation?.input ?? (part.input ?? {}) as object,
 				});
 				continue;
 			}

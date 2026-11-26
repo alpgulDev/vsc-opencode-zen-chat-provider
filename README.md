@@ -53,8 +53,6 @@ Open the command palette (`Ctrl/Cmd+Shift+P`):
   - Groups created by earlier builds no longer block this wizard. Once the wizard completes, its saved auth/lane takes precedence over those legacy groups.
 - `OpenCode Zen: Refresh Model List` (`opencodeZen.refreshModels`)
   - Refetches models from `https://models.dev/api.json` (filtered to provider `opencode`) and refreshes the registered vendors.
-- `OpenCode Zen: Manage Paid Models` (`opencodeZen.managePaidModels`)
-  - Opens a multi-select list of all paid models. Checked models are active; unchecked ones stay passive. Activation is stored in extension state and applies to both Chat and Agents.
 - `OpenCode Zen: Revert Agents Window Support` (`opencodeZen.revertAgentsWindowSupport`)
   - Restores the VS Code settings the extension auto-enabled for the Agents window.
 - `OpenCode Zen: Restart Bun-Compatible Transport` (`opencodeZen.restartTransport`)
@@ -72,6 +70,6 @@ Standalone sign-in, sign-out and self-test commands were removed; authentication
 - OAuth credentials and API keys are stored in **SecretStorage**. `Anonymous` explicitly uses the public `Bearer public` lane.
 - The provider contribution declares `managementCommand`, so VS Code's **Add Models** action resolves models with `silent: false` instead of immediately creating a group. The extension uses that signal to run auth and lane selection first; no models are exposed until it succeeds. On failure an error notification with **Retry** is shown.
 - Existing VS Code provider groups created by earlier builds remain supported until the wizard is completed; after that, the wizard's saved auth/lane is authoritative and legacy groups are ignored to avoid duplicate or stale credentials.
-- All models are registered so they remain visible in VS Code's Language Models editor. Models with `cost.input` and `cost.output` both `0` are labelled `Free` and selectable immediately. Paid models are registered with `isUserSelectable: false`, so they stay passive until enabled with **OpenCode Zen: Manage Paid Models**. VS Code's own Show checkbox cannot do this because visibility is not exposed through the extension API.
+- Model visibility follows the auth choice: `Anonymous` exposes only zero-cost models, while `OAuth` and `API Key` expose all active models. Every exposed model is selectable, so paid models cannot be chosen in anonymous mode and no manual opt-in is needed. Zero-cost models are labelled `Free` in their tooltip.
 - Requests are shaped like OpenCode CLI traffic: canonical `ses_`/`msg_` IDs, CLI headers, official 2.x system prompt and tool manifest, and opaque aliases for VS Code tools.
 - Run `npm run test:parity` for offline parity checks (no requests to `opencode.ai`).

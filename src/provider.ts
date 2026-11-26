@@ -1,6 +1,6 @@
 import { jsonSchema } from 'ai';
 import * as vscode from 'vscode';
-import { buildCliHeaders, buildToolRenames, clientToolWireName, projectForWorkdir, projectId, type CliRequestContext } from './cliShaping';
+import { buildCliHeaders, buildToolRenames, clientToolWireName, officialToolDefinitions, officialToolParameters, projectForWorkdir, projectId, type CliRequestContext } from './cliShaping';
 import { GatewayRouteResolver, providerBaseUrl, sdkPackageForProtocol, type ResolvedGatewayRoute } from './gatewayRoutes';
 import type { ZenTransportManager } from './zenTransport';
 import { isCanonicalSessionId, messageId, sessionId } from './identity';
@@ -19,6 +19,7 @@ import { ModelRegistry } from './modelRegistry';
 import { OPENAI_COMPAT_PROVIDER_NAME, streamZen } from './zenClient';
 import { getOutputChannel } from './output';
 import { toCopilotUsage, VSCODE_USAGE_MIME_TYPE, type ZenUsage } from './usage';
+import { canonicalizeToolResult, ToolSchemaBridge, type ToolInvocation } from './toolSchemaBridge';
 
 export const VENDOR_ID = 'opencode';
 export const AGENT_VENDOR_ID = 'opencode-agent';
@@ -29,7 +30,6 @@ const AGENT_SESSION_TYPE = 'copilotcli';
 const BYOK_GROUP_STATE_PREFIX = 'opencodeZen.byokGroup.v1.';
 const OAUTH_PROMPTED_STATE_KEY = 'opencodeZen.oauthGroupPrompted.v1';
 const SETUP_STATE_PREFIX = 'opencodeZen.setup.v1.';
-const ACTIVATED_PAID_MODELS_KEY = 'opencodeZen.activatedPaidModels.v1';
 
 let apiKeyPromptInFlight: Promise<string | undefined> | undefined;
 let apiKeyPromptAttempted = false;
@@ -49,8 +49,6 @@ interface SetupConfig {
 type SetupChoice = SetupAuthMethod | 'signOut';
 
 type SetupPickItem = vscode.QuickPickItem & { readonly value: SetupChoice };
-
-type PaidModelPickItem = vscode.QuickPickItem & { readonly value: string };
 
 type GroupedModelOptions = vscode.PrepareLanguageModelChatModelOptions & {
 	readonly silent?: boolean;
@@ -133,46 +131,6 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			getOutputChannel().error(`Model refresh failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 		await this.refreshRoutes(force);
-	}
-
-	private activatedPaidModels(): Set<string> {
-		const stored = this.context.globalState.get<string[]>(ACTIVATED_PAID_MODELS_KEY, []);
-		return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
-	}
-
-	private isPaidModelEnabled(modelId: string): boolean {
-		const id = rawModelId(modelId);
-		return this.registry.isFreeModel(id) || this.activatedPaidModels().has(id);
-	}
-
-	async managePaidModels(): Promise<void> {
-		const models = await this.registry.getModels({ force: true, anonymous: false });
-		const activated = this.activatedPaidModels();
-		const paid = models.filter((model) => !this.registry.isFreeModel(model.id));
-		if (paid.length === 0) {
-			vscode.window.showInformationMessage('OpenCode Zen has no paid models to manage.');
-			return;
-		}
-		const items: PaidModelPickItem[] = paid.map((model) => ({
-			label: model.name,
-			description: model.id,
-			detail: model.tooltip,
-			picked: activated.has(model.id),
-			value: model.id,
-		}));
-		const selected = await vscode.window.showQuickPick<PaidModelPickItem>(items, {
-			title: 'OpenCode Zen: Paid Models',
-			placeHolder: 'Checked models are active. Select the paid models to enable.',
-			canPickMany: true,
-			ignoreFocusOut: true,
-		});
-		if (!selected) {
-			return;
-		}
-		const next = new Set(selected.map((item) => item.value));
-		await this.context.globalState.update(ACTIVATED_PAID_MODELS_KEY, [...next].sort());
-		getOutputChannel().info(`OpenCode Zen paid models active: ${next.size} of ${paid.length}.`);
-		this.onDidChangeEmitter.fire();
 	}
 
 	private async refreshRoutes(force: boolean): Promise<void> {
@@ -440,6 +398,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			const existingSetup = this.getSetup();
 			let auth: InferenceAuth | undefined;
 			let lane = 'auto';
+			let isAnonymous = false;
 
 			if (configuration !== undefined) {
 				if (existingSetup) {
@@ -470,14 +429,16 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 						return [];
 					}
 					lane = setup.lane;
+					isAnonymous = setup.authMethod === 'anonymous';
 				} else if (this.hasByokGroupConfigured()) {
 					return [];
 				} else {
 					auth = await getInferenceAuth(this.context.secrets);
+					isAnonymous = auth.apiKey === 'public';
 				}
 			}
 
-			const models = await this.registry.getModels();
+			const models = await this.registry.getModels({ anonymous: isAnonymous });
 			await this.refreshRoutes(false);
 
 			const visible = modelsForLane(models, lane);
@@ -490,7 +451,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 						id,
 						name: `${model.name} (Agents)`,
 						isBYOK: true,
-						isUserSelectable: this.isPaidModelEnabled(id),
+						isUserSelectable: true,
 						targetChatSessionType: AGENT_SESSION_TYPE,
 					};
 				});
@@ -498,7 +459,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 
 			return visible.map((model) => {
 				this.rememberApiKey(model.id, auth.apiKey);
-				return { ...model, isBYOK: true, isUserSelectable: this.isPaidModelEnabled(model.id) };
+				return { ...model, isBYOK: true, isUserSelectable: true };
 			});
 		} catch (err) {
 			// If model metadata fetch fails, surface no models rather than throwing.
@@ -514,9 +475,6 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
-		if (!this.isPaidModelEnabled(model.id)) {
-			throw new Error(`OpenCode Zen model ${model.name} is disabled. Run 'OpenCode Zen: Manage Paid Models' to enable it.`);
-		}
 		const transportEndpoint = await this.transport?.getEndpoint();
 		const auth = await this.resolveRequestAuth(options, model.id);
 
@@ -537,6 +495,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 				originalModelId: route.route.model_id,
 			}
 			: metadata;
+		const shapeBody = providerInfo?.npm === '@ai-sdk/openai-compatible';
 		const isGoLane = route?.plan === 'go' || (!route && rawId.endsWith('-go'));
 		const requestToolMode = isGoLane && toolMode === 'required' ? 'auto' : toolMode;
 		const requestModelId = providerInfo?.originalModelId ?? rawId;
@@ -547,6 +506,12 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		const toolAliases = new Map(
 			declaredToolNames.map((name) => [name, renames.wire(name) ?? clientToolWireName(name)])
 		);
+		const declaredNameSet = new Set(declaredToolNames);
+		for (const name of Object.keys(officialToolDefinitions())) {
+			if (!declaredNameSet.has(name) && !toolAliases.has(name)) {
+				toolAliases.set(name, name);
+			}
+		}
 		for (const [vscodeName, providerName] of toolNameMap.toProvider) {
 			toolNameMap.toVsCode.set(providerName, vscodeName);
 		}
@@ -554,7 +519,26 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			const declared = renames.resolve(wire);
 			return toolNameMap.toVsCode.get(declared) ?? declared;
 		};
-		const tools = options.tools ? toolsToAiSdkTools(options.tools, toolNameMap.toProvider) : undefined;
+		const bridge = new ToolSchemaBridge(
+			officialToolParameters(),
+			(options.tools ?? []).map((tool) => ({
+				name: toolNameMap.toProvider.get(tool.name) ?? tool.name,
+				inputSchema: tool.inputSchema,
+			}))
+		);
+		const transformToolCall = (wire: string, input: unknown): ToolInvocation => {
+			const canonical = bridge.canonicalize(wire, input);
+			const name = resolveToolName(canonical.name);
+			const target = bridge.findTarget(canonical.name, renames.officialClient(canonical.name), canonical.input);
+			return target === undefined
+				? { name, input: canonical.input }
+				: bridge.toTarget(canonical.name, canonical.input, { ...target, name });
+		};
+		const declaredTools = options.tools ? toolsToAiSdkTools(options.tools, toolNameMap.toProvider) : {};
+		const canonicalTools = canonicalToolsToAiSdkTools(new Set(declaredToolNames));
+		const tools = Object.keys(declaredTools).length > 0 || Object.keys(canonicalTools).length > 0
+			? { ...declaredTools, ...canonicalTools }
+			: undefined;
 		const coreMessages = messagesToAiSdkMessages(messages, toolNameMap.toProvider);
 		const promptCaching = getPromptCachingConfig();
 		const promptCacheKey =
@@ -596,7 +580,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 			workdir: requestMeta.workdir,
 			modelHeaders: providerInfo?.headers,
 			toolAliases,
-			shapeBody: providerInfo?.npm === '@ai-sdk/openai-compatible',
+			shapeBody,
 		};
 		const requestHeaders = buildCliHeaders(cliContext);
 
@@ -622,6 +606,7 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 					baseURL: providerInfo?.api,
 					headers: requestHeaders,
 					resolveToolName,
+					transformToolCall,
 					debugLogging: debugFlag,
 					cliContext,
 					baseFetch: transportEndpoint?.fetch,
@@ -812,7 +797,7 @@ function mapVsCodeMessageToAiSdkMessages(
 				type: 'tool-result',
 				toolCallId: part.callId,
 				toolName,
-				output: languageModelToolResultContentToOutput(part.content),
+				output: canonicalizeToolResult(languageModelToolResultContentToOutput(part.content)),
 			});
 			continue;
 		}
@@ -947,6 +932,20 @@ function toolsToAiSdkTools(
 			description: tool.description,
 			inputSchema: jsonSchema(schema as any),
 			// No `execute`: VS Code invokes tools and sends results back on next turn.
+		};
+	}
+	return mapped;
+}
+
+function canonicalToolsToAiSdkTools(existing: ReadonlySet<string>): Record<string, any> {
+	const mapped: Record<string, any> = {};
+	for (const [name, definition] of Object.entries(officialToolDefinitions())) {
+		if (existing.has(name)) {
+			continue;
+		}
+		mapped[name] = {
+			description: definition.description,
+			inputSchema: jsonSchema(normalizeToolSchema(definition.parameters) as any),
 		};
 	}
 	return mapped;

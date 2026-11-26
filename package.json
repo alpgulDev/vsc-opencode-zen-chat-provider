@@ -3,7 +3,7 @@
   "publisher": "wienans",
   "displayName": "OpenCode Zen Provider",
   "description": "Provides OpenCode Zen models to VS Code's Language Model API.",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "repository": {
     "type": "git",
     "url": "https://github.com/wienans/vsc-opencode-zen-chat-provider.git"
@@ -36,7 +36,6 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:opencodeZen.refreshModels",
-    "onCommand:opencodeZen.managePaidModels",
     "onCommand:opencodeZen.addModels",
     "onCommand:opencodeZen.revertAgentsWindowSupport",
     "onCommand:opencodeZen.restartTransport",
@@ -48,35 +47,7 @@
       {
         "vendor": "opencode",
         "displayName": "OpenCode Zen",
-        "managementCommand": "opencodeZen.addModels",
-        "configuration": {
-          "type": "object",
-          "properties": {
-            "authMethod": {
-              "type": "string",
-              "enum": ["oauth", "apiKey", "signOut"],
-              "enumDescriptions": [
-                "Sign in with OpenCode Console device OAuth (no API key needed).",
-                "Use an OpenCode Zen API key; the extension prompts securely when needed.",
-                "Sign out and clear stored credentials."
-              ],
-              "default": "oauth",
-              "description": "How this model group authenticates to OpenCode Zen."
-            },
-            "apiKey": {
-              "type": "object",
-              "title": "OpenCode Zen API Key",
-              "description": "Managed by the extension when authMethod is apiKey; not prompted by Add Models. Use authMethod 'signOut' to clear it.",
-              "secret": true
-            },
-            "lane": {
-              "type": "string",
-              "enum": ["auto", "zen", "go"],
-              "default": "auto",
-              "description": "Which OpenCode inference lane to expose. 'auto' includes both."
-            }
-          }
-        }
+        "managementCommand": "opencodeZen.addModels"
       },
       {
         "vendor": "opencode-agent",
@@ -89,10 +60,6 @@
       {
         "command": "opencodeZen.refreshModels",
         "title": "OpenCode Zen: Refresh Model List"
-      },
-      {
-        "command": "opencodeZen.managePaidModels",
-        "title": "OpenCode Zen: Manage Paid Models"
       },
       {
         "command": "opencodeZen.addModels",

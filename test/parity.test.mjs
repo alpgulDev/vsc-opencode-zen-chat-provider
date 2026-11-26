@@ -46,6 +46,7 @@ test('manifest is the byte-stable 13-tool CLI set', () => {
 	assert.equal(manifest.length, 13);
 	assert.deepEqual(manifest.map((tool) => tool.function.name), [...shaping.OFFICIAL_TOOL_ORDER]);
 	assert.equal(manifest.every((tool) => tool.function.strict === false), true);
+	assert.deepEqual(Object.keys(shaping.officialToolDefinitions()), [...shaping.OFFICIAL_TOOL_ORDER]);
 });
 
 test('preamble contains the CLI prompt, env block and skills', () => {
@@ -268,7 +269,11 @@ test('all system and developer instructions fold into one system message', () =>
 test('ToolRenames restores exact, folded and official names without guessing ambiguities', () => {
 	const { ToolRenames, foldToolName, officialToolCandidates } = toolRenames;
 	assert.equal(foldToolName('ToDo_Write'), 'todowrite');
-	assert.deepEqual(officialToolCandidates('question'), ['AskUserQuestion']);
+	assert.deepEqual(officialToolCandidates('question'), ['ask_user', 'AskUserQuestion', 'request_user_input']);
+	assert.deepEqual(officialToolCandidates('execute'), ['Bash', 'bash', 'run_in_terminal', 'execute_command']);
+	assert.deepEqual(officialToolCandidates('websearch'), ['WebSearch', 'web_search', 'search_web', 'web_fetch']);
+	assert.deepEqual(officialToolCandidates('write'), ['Write', 'create', 'create_file', 'write_file']);
+	assert.deepEqual(officialToolCandidates('patch'), ['Patch', 'apply_patch', 'apply_patch_tool', 'edit', 'create', 'bash']);
 
 	const renames = new ToolRenames();
 	renames.add('TodoWrite', 'mcp_aaa');
@@ -754,7 +759,7 @@ test('provider keeps CLI shaping and routes the shaped fetch through our transpo
 	assert.match(source, /baseFetch: transportEndpoint\?\.fetch/);
 	assert.match(source, /route\?\.plan === 'go'/);
 	assert.match(source, /projectId\(projectForWorkdir\(requestMeta\.workdir\)\)/);
-	assert.match(source, /shapeBody: providerInfo\?\.npm === '@ai-sdk\/openai-compatible'/);
+	assert.match(source, /const shapeBody = providerInfo\?\.npm === '@ai-sdk\/openai-compatible'/);
 	assert.match(source, /getGatewayCredential/);
 	assert.match(source, /new vscode\.LanguageModelDataPart\(/);
 	assert.match(source, /VSCODE_USAGE_MIME_TYPE/);
@@ -771,16 +776,11 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	const base = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode');
 	assert.equal(base?.displayName, 'OpenCode Zen');
 	assert.equal(base.managementCommand, 'opencodeZen.addModels');
-	assert.equal(base.configuration.properties.apiKey.secret, true);
-	assert.equal(base.configuration.properties.apiKey.type, 'object');
-	assert.equal(base.configuration.required, undefined);
-	assert.deepEqual(base.configuration.properties.authMethod.enum, ['oauth', 'apiKey', 'signOut']);
-	assert.equal(base.configuration.properties.authMethod.default, 'oauth');
-	assert.deepEqual(base.configuration.properties.lane.enum, ['auto', 'zen', 'go']);
-	assert.equal(base.configuration.properties.lane.default, 'auto');
+	assert.equal(base.configuration, undefined, 'JSON group config would expose VS Code group actions such as Update API Key');
 	const agent = pkg.contributes.languageModelChatProviders.find((entry) => entry.vendor === 'opencode-agent');
 	assert.equal(agent?.displayName, 'OpenCode Zen (Agents)');
 	assert.equal(agent.managementCommand, 'opencodeZen.addModels');
+	assert.equal(agent.configuration, undefined);
 	assert.match(agent.when, /showAgentModelsInManagePanel/);
 	assert.equal(pkg.capabilities?.agentsWindow?.supported, true);
 	assert.equal(pkg.activationEvents.includes('onLanguageModelChatProvider:opencode'), true);
@@ -840,30 +840,33 @@ test('models are registered for local Chat and Copilot Agents windows', () => {
 	assert.match(agentsWindow, /agentsPickerInAttachContextMenu/);
 });
 
-test('paid models stay passive until activated through the extension command', () => {
+test('model visibility follows the selected auth method', () => {
 	const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 	assert.equal(pkg.contributes.configuration.properties['opencodeZen.onlyFreeModels'], undefined);
 	const commands = pkg.contributes.commands.map((command) => command.command);
-	assert.equal(commands.includes('opencodeZen.managePaidModels'), true);
-	assert.equal(pkg.activationEvents.includes('onCommand:opencodeZen.managePaidModels'), true);
+	assert.equal(commands.includes('opencodeZen.managePaidModels'), false);
+	assert.equal(pkg.activationEvents.includes('onCommand:opencodeZen.managePaidModels'), false);
 
 	const registry = readFileSync(join(root, 'src', 'modelRegistry.ts'), 'utf8');
-	assert.match(registry, /modelCosts/);
-	assert.match(registry, /isFreeModel\(modelId: string\): boolean/);
+	assert.match(registry, /\(!anonymous \|\| model\.cost\?\.input === 0\)/);
 	assert.match(registry, /'Free'/);
+	assert.doesNotMatch(registry, /modelCosts/);
+	assert.doesNotMatch(registry, /isFreeModel\(modelId: string\): boolean/);
 	assert.doesNotMatch(registry, /onlyFreeModels/);
 
 	const provider = readFileSync(join(root, 'src', 'provider.ts'), 'utf8');
-	assert.match(provider, /ACTIVATED_PAID_MODELS_KEY/);
-	assert.match(provider, /managePaidModels\(\): Promise<void>/);
-	assert.match(provider, /canPickMany: true/);
-	assert.match(provider, /picked: activated\.has\(model\.id\)/);
-	assert.match(provider, /isUserSelectable: this\.isPaidModelEnabled\(id\)/);
-	assert.match(provider, /isUserSelectable: this\.isPaidModelEnabled\(model\.id\)/);
-	assert.match(provider, /OpenCode Zen model \$\{model\.name\} is disabled/);
+	assert.match(provider, /let isAnonymous = false/);
+	assert.match(provider, /isAnonymous = setup\.authMethod === 'anonymous'/);
+	assert.match(provider, /isAnonymous = auth\.apiKey === 'public'/);
+	assert.match(provider, /getModels\(\{ anonymous: isAnonymous \}\)/);
+	assert.match(provider, /isUserSelectable: true/);
+	assert.doesNotMatch(provider, /ACTIVATED_PAID_MODELS_KEY/);
+	assert.doesNotMatch(provider, /managePaidModels\(\): Promise<void>/);
+	assert.doesNotMatch(provider, /isPaidModelEnabled/);
+	assert.doesNotMatch(provider, /Manage Paid Models/);
 
 	const extension = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
-	assert.match(extension, /registerCommand\('opencodeZen\.managePaidModels'/);
-	assert.match(extension, /agentProvider\.refreshModels\(false\)/);
+	assert.doesNotMatch(extension, /registerCommand\('opencodeZen\.managePaidModels'/);
+	assert.doesNotMatch(extension, /agentProvider\.refreshModels\(false\)/);
 	assert.doesNotMatch(extension, /onlyFreeModels/);
 });

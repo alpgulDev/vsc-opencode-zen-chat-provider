@@ -150,8 +150,9 @@ export class ToolRenames {
 export function officialToolCandidates(name: string): readonly string[] {
 	switch (name.toLowerCase()) {
 		case 'bash':
+		case 'execute':
 		case 'shell':
-			return ['Bash', 'run_in_terminal', 'execute_command'];
+			return ['Bash', 'bash', 'run_in_terminal', 'execute_command'];
 		case 'edit':
 			return [
 				'Edit', 'replace_string_in_file', 'multi_replace_string_in_file',
@@ -162,9 +163,9 @@ export function officialToolCandidates(name: string): readonly string[] {
 		case 'grep':
 			return ['Grep', 'grep_search', 'find_text_in_files', 'codebase_search'];
 		case 'question':
-			return ['AskUserQuestion'];
+			return ['ask_user', 'AskUserQuestion', 'request_user_input'];
 		case 'read':
-			return ['Read', 'read_file', 'view_file'];
+			return ['Read', 'view', 'read_file', 'view_file'];
 		case 'skill':
 			return ['Skill'];
 		case 'subagent':
@@ -173,13 +174,13 @@ export function officialToolCandidates(name: string): readonly string[] {
 		case 'todowrite':
 			return ['TodoWrite', 'manage_todo_list'];
 		case 'webfetch':
-			return ['WebFetch', 'fetch_webpage'];
+			return ['WebFetch', 'web_fetch', 'fetch_webpage'];
 		case 'websearch':
-			return ['WebSearch', 'search_web'];
+			return ['WebSearch', 'web_search', 'search_web', 'web_fetch'];
 		case 'write':
-			return ['Write', 'create_file', 'write_file'];
+			return ['Write', 'create', 'create_file', 'write_file'];
 		case 'patch':
-			return ['Patch', 'apply_patch', 'apply_patch_tool'];
+			return ['Patch', 'apply_patch', 'apply_patch_tool', 'edit', 'create', 'bash'];
 		default:
 			return [];
 	}

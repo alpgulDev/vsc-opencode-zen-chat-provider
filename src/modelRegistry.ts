@@ -60,7 +60,6 @@ export class ModelRegistry {
 	private modelProviderOverrides = new Map<string, string>();
 	private modelRequestMetadata = new Map<string, { headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string }>();
 	private modelProviderApi = new Map<string, string>();
-	private modelCosts = new Map<string, { input?: number; output?: number }>();
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -72,7 +71,6 @@ export class ModelRegistry {
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
 		this.modelProviderApi.clear();
-		this.modelCosts.clear();
 		this._onDidChange.fire();
 	}
 
@@ -103,7 +101,6 @@ export class ModelRegistry {
 		this.modelProviderOverrides.clear();
 		this.modelRequestMetadata.clear();
 		this.modelProviderApi.clear();
-		this.modelCosts.clear();
 
 		const allModels: { provider: ModelsDevProvider; model: ModelsDevModel; providerId: string; uniqueId: string }[] = [];
 
@@ -134,7 +131,6 @@ export class ModelRegistry {
 					options: model.options,
 					originalModelId: model.id,
 				});
-				this.modelCosts.set(uniqueId, model.cost ?? {});
 			}
 		}
 
@@ -153,14 +149,6 @@ export class ModelRegistry {
 		this.cachedAtMs = now;
 		this.cachedAnonymous = anonymous;
 		return models;
-	}
-
-	isFreeModel(modelId: string): boolean {
-		const cost = this.modelCosts.get(modelId);
-		if (!cost) {
-			return true;
-		}
-		return cost.input === 0 && cost.output === 0;
 	}
 
 	async getModelProviderInfo(modelId: string): Promise<{ npm: string; api: string; headers?: Record<string, string>; options?: Record<string, unknown>; originalModelId?: string } | undefined> {

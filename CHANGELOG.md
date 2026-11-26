@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## UNRELEASED [x.x.x] - xxxx-xx-xx
+## [0.1.7] - 2026-11-26
+
+### Changed
+
+- Model visibility now follows the auth choice made in the Add Models wizard: `Anonymous` exposes only zero-cost models, while `OAuth` and `API Key` expose every active model. All exposed models are selectable, so no separate paid-model opt-in is needed.
+
+### Removed
+
+- Removed `OpenCode Zen: Manage Paid Models`, the stored `activatedPaidModels` state, and the `isUserSelectable: false` gate for paid models. Removed the now-unused `modelCosts` / `isFreeModel` registry helpers.
+
+## [0.1.6] - 2026-11-26
+
+### Fixed
+
+- Remove the `configuration` schema from the `opencode` provider contribution. VS Code no longer shows JSON-group actions such as **Update API Key**, **Rename Group**, or **Delete**, which operated on provider groups this extension never creates. Authentication and lane selection stay in the extension-managed Add Models wizard; the provider gear now reopens that wizard through `managementCommand`.
 
 ## [0.1.5] - 2026-11-26
 
