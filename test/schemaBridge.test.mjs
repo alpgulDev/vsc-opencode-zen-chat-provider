@@ -281,7 +281,7 @@ test('canonical patch maps an add to create and a delete to bash', () => {
 	assert.equal(bash?.name, 'bash');
 	assert.deepEqual(bridge.toTarget(del.name, del.input, bash), {
 		name: 'bash',
-		input: { command: 'rm -- "notes.txt"' },
+		input: { command: "rm -- 'notes.txt'" },
 	});
 });
 

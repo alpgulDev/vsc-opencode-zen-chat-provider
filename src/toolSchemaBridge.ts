@@ -260,7 +260,7 @@ function patchArgsForTarget(input: unknown, targetSchema: unknown): Record<strin
 		}
 	}
 	if (operation.kind === 'delete' && 'command' in properties) {
-		return { command: `rm -- ${JSON.stringify(operation.path)}` };
+		return { command: `rm -- '${operation.path.replace(/'/g, "'\\''")}'` };
 	}
 	if (operation.kind === 'update' && 'old_str' in properties && 'new_str' in properties) {
 		return { path: operation.path, old_str: operation.oldText, new_str: operation.newText };

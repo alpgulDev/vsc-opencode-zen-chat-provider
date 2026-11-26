@@ -528,14 +528,15 @@ export class OpenCodeZenChatProvider implements vscode.LanguageModelChatProvider
 		);
 		const transformToolCall = (wire: string, input: unknown): ToolInvocation => {
 			const canonical = bridge.canonicalize(wire, input);
-			const name = resolveToolName(canonical.name);
 			const target = bridge.findTarget(canonical.name, renames.officialClient(canonical.name), canonical.input);
 			return target === undefined
-				? { name, input: canonical.input }
-				: bridge.toTarget(canonical.name, canonical.input, { ...target, name });
+				? { name: resolveToolName(canonical.name), input: canonical.input }
+				: bridge.toTarget(canonical.name, canonical.input, { ...target, name: resolveToolName(target.name) });
 		};
 		const declaredTools = options.tools ? toolsToAiSdkTools(options.tools, toolNameMap.toProvider) : {};
-		const canonicalTools = canonicalToolsToAiSdkTools(new Set(declaredToolNames));
+		const canonicalTools = declaredToolNames.length > 0
+			? canonicalToolsToAiSdkTools(new Set(declaredToolNames))
+			: {};
 		const tools = Object.keys(declaredTools).length > 0 || Object.keys(canonicalTools).length > 0
 			? { ...declaredTools, ...canonicalTools }
 			: undefined;

@@ -83,7 +83,7 @@ export class ModelRegistry {
 
 		const anonymous = options.anonymous ?? false;
 		if (!options.force && this.cachedModels && this.cachedAtMs !== undefined && this.cachedAnonymous === anonymous) {
-			if (ttlMs === 0 || now - this.cachedAtMs < ttlMs) {
+			if (ttlMs > 0 && now - this.cachedAtMs < ttlMs) {
 				return this.cachedModels;
 			}
 		}

@@ -937,7 +937,9 @@ export function shapeChatBody(
 	const renames = new ToolRenames();
 	if (!isTitleGenerationRequest(body)) {
 		const used = new Set(context.toolAliases?.values() ?? []);
-		const callerTools = Array.isArray(body.tools) ? body.tools : [];
+		const callerTools = Array.isArray(body.tools)
+			? body.tools.filter((tool: any) => !OFFICIAL_TOOL_ORDER.includes(tool?.function?.name))
+			: [];
 		const renamed = callerTools.map((tool: any) => {
 			const copy = tool && typeof tool === 'object' ? { ...tool } : tool;
 			const fn = copy?.function && typeof copy.function === 'object' ? { ...copy.function } : undefined;
