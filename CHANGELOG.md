@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-11-26
+
+### Fixed
+
+- Disable model metadata caching when `opencodeZen.modelCacheTtlMinutes` is `0`, as documented.
+- Emit tool calls with the selected target tool's name so names and arguments stay consistent.
+- Keep the byte-stable CLI tool manifest intact: injected official tools are no longer renamed or filtered out, and title-generation requests no longer receive a tool list.
+- Quote file paths in patch delete commands so model-supplied paths cannot trigger shell expansion.
+
 ## [0.1.7] - 2026-11-26
 
 ### Changed
